@@ -77,18 +77,22 @@ All four dials share the same geometry constants: `CX=110, CY=110, R=85`, start 
 
 ## Publishing a New Release
 
-The repo is published at `iceboerg00/blower-control-card` and installable via HACS. GitHub Actions automatically creates a release when a version tag is pushed.
+**Every code change must be released.** After every edit to `blower-control-card.js`, always:
+
+1. Bump `BCC_VERSION` in `blower-control-card.js` (e.g. `'v50'` → `'v51'`)
+2. Commit, tag, and push:
 
 ```bash
-# 1. Bump BCC_VERSION in blower-control-card.js (e.g. 'v41')
 git add blower-control-card.js
-git commit -m "chore: release v41.0.0"
-git tag v41.0.0
+git commit -m "chore: release v51.0.0"
+git tag v51.0.0
 git push && git push --tags
 # GitHub Actions creates the release with the JS file attached (~30s)
 ```
 
 HACS users will see the update appear automatically in HACS → Updates.
+
+The repo is published at `iceboerg00/blower-control-card`. GitHub Actions (`.github/workflows/release.yml`) triggers on `v*.*.*` tags and attaches `blower-control-card.js` to the release automatically.
 
 ## UI Language
 

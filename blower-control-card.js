@@ -1,6 +1,6 @@
 // blower-control-card.js v15
 // type: custom:blower-control-card
-const BCC_VERSION = 'v49';
+const BCC_VERSION = 'v50';
 const BCC_DEBUG = false; // set true to enable verbose console logging
 console.log(`%c[BCC] ${BCC_VERSION} loaded`, 'color:#03a9f4;font-weight:bold');
 
@@ -1370,6 +1370,15 @@ class BlowerControlCard extends HTMLElement {
     // a higher value than sent (e.g. bri=8 sent, bri=28 reported for 11% hardware min),
     // which would cause a perpetual re-send loop every 5s.
     if (bri === this._lastSentLightBri) return;
+    // During sunrise (bri going up): if HA already reports a higher brightness than desired,
+    // the light is at its hardware minimum. Sending the lower value causes a visible flicker
+    // (light physically attempts the low value → hardware snaps back to minimum).
+    // Advance the tracker without sending so the ramp silently passes through the dead zone.
+    const goingUp = this._lastSentLightBri !== null && bri > this._lastSentLightBri;
+    if (goingUp && isOn && curBri != null && Math.round(curBri) > bri) {
+      this._lastSentLightBri = bri;
+      return;
+    }
     this._hass.callService('light', 'turn_on', { entity_id: this._light, brightness: bri });
     this._lastSentLightBri = bri;
     this._lightCmdGuard = Date.now() + 2000;
