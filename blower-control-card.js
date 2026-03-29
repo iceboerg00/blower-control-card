@@ -1,6 +1,6 @@
 // blower-control-card.js v15
 // type: custom:blower-control-card
-const BCC_VERSION = 'v47';
+const BCC_VERSION = 'v48';
 const BCC_DEBUG = false; // set true to enable verbose console logging
 console.log(`%c[BCC] ${BCC_VERSION} loaded`, 'color:#03a9f4;font-weight:bold');
 
@@ -44,6 +44,8 @@ function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 function snap10(v) { return Math.round(v / 10) * 10; }
 function nowMin() { const d = new Date(); return d.getHours() * 60 + d.getMinutes(); }
 function toMin(t) { const [h, m] = t.split(':').map(Number); return h * 60 + m; }
+function nowSec() { const d = new Date(); return d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds(); }
+function toSec(t) { const [h, m] = t.split(':').map(Number); return h * 3600 + m * 60; }
 function fmtMin(ms) {
   const m = Math.floor(ms / 60000);
   return m > 0 ? `${m} min` : `< 1 min`;
@@ -1946,33 +1948,35 @@ class BlowerControlCard extends HTMLElement {
       return;
     }
 
+    // Use second-precision for ramp calculations so _evalLight() (every 5s) gives smooth steps
+    const ns = nowSec(), ss = toSec(sc.start), es = toSec(sc.end);
+    const elapsedFromStart = ((ns - ss) + 86400) % 86400;   // seconds since window start
+    const totalLen         = ((es - ss) + 86400) % 86400;   // total window length in seconds
+    const timeToEnd        = totalLen - elapsedFromStart;
+    const rampUpSec        = sc.rampUp   * 60;
+    const rampDownSec      = sc.rampDown * 60;
+
     // If light entity is off while schedule says it should be on → interrupted, disable ramps
     const st = this._hass.states[this._light];
     if (st && st.state === 'off' && this._lightRampOk) {
       // Only mark interrupted if we're past the sunrise window (light should have been on by now)
-      const elapsedS = ((n - s) + 1440) % 1440;
-      if (elapsedS >= sc.rampUp) {
+      if (elapsedFromStart >= rampUpSec) {
         this._lightRampOk = false;
         BCC_DEBUG && console.log('%c[BCC] light interrupted mid-schedule, ramps disabled', 'color:#ff9800');
       }
     }
 
-    const elapsedFromStart = ((n - s) + 1440) % 1440;
-    const totalLen = ((e - s) + 1440) % 1440;
-    const timeToEnd = totalLen - elapsedFromStart;
-
-    // Sunset: last rampDown minutes before end (only if ramps allowed)
-    if (this._lightRampOk && sc.rampDown > 0 && timeToEnd <= sc.rampDown) {
-      const pct = Math.round(ls.brightness * (timeToEnd / sc.rampDown));
+    // Sunset: last rampDown seconds before end (only if ramps allowed)
+    if (this._lightRampOk && rampDownSec > 0 && timeToEnd <= rampDownSec) {
+      const pct = Math.round(ls.brightness * (timeToEnd / rampDownSec));
       this._setLight(pct);
       this._updateLightSchedInfo('sunset', pct);
       return;
     }
 
-    // Sunrise: first rampUp minutes after start (only if ramps allowed)
-    // pct=0 at minute 0 → light stays off until first non-zero value (avoids hardware-minimum snap)
-    if (this._lightRampOk && sc.rampUp > 0 && elapsedFromStart < sc.rampUp) {
-      const pct = Math.round(ls.brightness * (elapsedFromStart / sc.rampUp));
+    // Sunrise: first rampUp seconds after start (only if ramps allowed)
+    if (this._lightRampOk && rampUpSec > 0 && elapsedFromStart < rampUpSec) {
+      const pct = Math.round(ls.brightness * (elapsedFromStart / rampUpSec));
       this._setLight(pct);
       this._updateLightSchedInfo('sunrise', pct);
       return;
@@ -1992,13 +1996,15 @@ class BlowerControlCard extends HTMLElement {
     const n = nowMin(), s = toMin(sc.start), e = toMin(sc.end);
     const inW = s <= e ? (n >= s && n < e) : (n >= s || n < e);
     if (!inW) { this._updateLightSchedInfo('off', 0); return; }
-    const elapsed = ((n - s) + 1440) % 1440;
-    const total = ((e - s) + 1440) % 1440;
-    const toEnd = total - elapsed;
-    if (this._lightRampOk && sc.rampDown > 0 && toEnd <= sc.rampDown) {
-      this._updateLightSchedInfo('sunset', Math.round(ls.brightness * (toEnd / sc.rampDown)));
-    } else if (this._lightRampOk && sc.rampUp > 0 && elapsed < sc.rampUp) {
-      this._updateLightSchedInfo('sunrise', Math.round(ls.brightness * (elapsed / sc.rampUp)));
+    const ns = nowSec(), ss = toSec(sc.start), es = toSec(sc.end);
+    const elapsed = ((ns - ss) + 86400) % 86400;
+    const total   = ((es - ss) + 86400) % 86400;
+    const toEnd   = total - elapsed;
+    const rampUpSec = sc.rampUp * 60, rampDownSec = sc.rampDown * 60;
+    if (this._lightRampOk && rampDownSec > 0 && toEnd <= rampDownSec) {
+      this._updateLightSchedInfo('sunset', Math.round(ls.brightness * (toEnd / rampDownSec)));
+    } else if (this._lightRampOk && rampUpSec > 0 && elapsed < rampUpSec) {
+      this._updateLightSchedInfo('sunrise', Math.round(ls.brightness * (elapsed / rampUpSec)));
     } else {
       this._updateLightSchedInfo('on', ls.brightness);
     }
