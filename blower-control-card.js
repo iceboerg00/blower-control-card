@@ -1,6 +1,6 @@
 // blower-control-card.js v15
 // type: custom:blower-control-card
-const BCC_VERSION = 'v51';
+const BCC_VERSION = 'v52';
 const BCC_DEBUG = false; // set true to enable verbose console logging
 console.log(`%c[BCC] ${BCC_VERSION} loaded`, 'color:#03a9f4;font-weight:bold');
 
@@ -1113,7 +1113,7 @@ class BlowerControlCard extends HTMLElement {
   _tLightManual() {
     const ls = this._settings.light;
     const bri = ls.brightness;
-    const sw = (clamp(bri, 0, 100) / 100) * T_ANG;
+    const sw = ((clamp(bri, 11, 100) - 11) / 89) * T_ANG;
     const bg = arcPath(CX, CY, R, S_ANG, T_ANG);
     const va = arcPath(CX, CY, R, S_ANG, Math.max(1, sw));
     const th = xy(CX, CY, R, S_ANG + sw);
@@ -1283,8 +1283,7 @@ class BlowerControlCard extends HTMLElement {
     const rel = ((a - S_ANG) + 360) % 360;
     let val;
     if (rel > T_ANG) val = rel > T_ANG + (360 - T_ANG) / 2 ? 11 : 100;
-    else val = Math.max(11, Math.round((rel / T_ANG) * 100));
-    this._settings.light.mode = 'manual';
+    else val = Math.round(11 + (rel / T_ANG) * 89);
     this._settings.light.brightness = val;
     this._updateLightDial(val);
     // Status-Badge live updaten
@@ -1295,7 +1294,7 @@ class BlowerControlCard extends HTMLElement {
 
   _updateLightDial(val) {
     const r = this.shadowRoot;
-    const sw = (clamp(val, 0, 100) / 100) * T_ANG;
+    const sw = ((clamp(val, 11, 100) - 11) / 89) * T_ANG;
     const va = arcPath(CX, CY, R, S_ANG, Math.max(1, sw));
     const th = xy(CX, CY, R, S_ANG + sw);
     const arc = r.querySelector('#light-arc');
