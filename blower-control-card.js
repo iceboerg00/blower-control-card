@@ -1,6 +1,6 @@
 // blower-control-card.js v15
 // type: custom:blower-control-card
-const BCC_VERSION = 'v46';
+const BCC_VERSION = 'v47';
 const BCC_DEBUG = false; // set true to enable verbose console logging
 console.log(`%c[BCC] ${BCC_VERSION} loaded`, 'color:#03a9f4;font-weight:bold');
 
@@ -1361,7 +1361,7 @@ class BlowerControlCard extends HTMLElement {
       return;
     }
     const bri = clamp(Math.round(clamp(pct, 1, 100) * 2.55), 1, 255);
-    if (isOn && curBri != null && Math.round(curBri) === bri) return; // already at desired brightness — no-op
+    if (isOn && curBri != null && Math.abs(Math.round(curBri) - bri) <= 2) return; // already at desired brightness (±2 tolerance for HA rounding) — no-op
     this._hass.callService('light', 'turn_on', { entity_id: this._light, brightness: bri });
     this._lightCmdGuard = Date.now() + 2000;
   }
@@ -1964,15 +1964,16 @@ class BlowerControlCard extends HTMLElement {
     // Sunset: last rampDown minutes before end (only if ramps allowed)
     if (this._lightRampOk && sc.rampDown > 0 && timeToEnd <= sc.rampDown) {
       const pct = Math.round(ls.brightness * (timeToEnd / sc.rampDown));
-      this._setLight(Math.max(1, pct));
+      this._setLight(pct);
       this._updateLightSchedInfo('sunset', pct);
       return;
     }
 
     // Sunrise: first rampUp minutes after start (only if ramps allowed)
+    // pct=0 at minute 0 → light stays off until first non-zero value (avoids hardware-minimum snap)
     if (this._lightRampOk && sc.rampUp > 0 && elapsedFromStart < sc.rampUp) {
       const pct = Math.round(ls.brightness * (elapsedFromStart / sc.rampUp));
-      this._setLight(Math.max(1, pct));
+      this._setLight(pct);
       this._updateLightSchedInfo('sunrise', pct);
       return;
     }
