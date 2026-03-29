@@ -1,6 +1,6 @@
 // blower-control-card.js v15
 // type: custom:blower-control-card
-const BCC_VERSION = 'v42';
+const BCC_VERSION = 'v43';
 console.log(`%c[BCC] ${BCC_VERSION} loaded`, 'color:#03a9f4;font-weight:bold');
 
 const TAG = 'blower-control-card';
@@ -1700,34 +1700,44 @@ class BlowerControlCard extends HTMLElement {
 
   _syncCircFromHA() {
     if (!this._hass || !this._rendered) return;
-    if (this._circDragging || Date.now() < this._circCmdGuard) return;
     const r = this.shadowRoot;
     const st = this._hass.states[this._circFan];
     if (!st) return;
     const on = st.state === 'on';
     const pct = st.attributes?.percentage;
 
+    // 1. Status-Badge IMMER updaten (kein Guard)
     const dot = r.querySelector('#circ-sdot');
     const lbl = r.querySelector('#circ-slbl');
     const spctEl = r.querySelector('#circ-spct');
     if (dot) dot.className = `sdot ${on ? 'on' : 'off'}`;
     if (lbl) lbl.textContent = on ? 'AN' : 'AUS';
-    if (spctEl) spctEl.textContent = (on && pct != null) ? ` ${Math.round(pct)}%` : '';
+    if (spctEl && !this._circDragging) spctEl.textContent = (on && pct != null) ? ` ${Math.round(pct)}%` : '';
 
-    if (on && pct != null && this._settings.circ.activeMode === 'manual') {
+    // 2. Toggle-Button IMMER updaten (kein Guard)
+    const tog = r.querySelector('#circ-tog');
+    if (tog) {
+      tog.className = `pbtn${on ? ' on' : ''}`;
+      tog.innerHTML = on ? '⏻&nbsp;&nbsp;Ausschalten' : '⏻&nbsp;&nbsp;Einschalten';
+    }
+
+    // 3. Guard für Dial-Sync
+    if (this._circDragging || Date.now() < this._circCmdGuard) return;
+
+    // 4. Sync circ.manual.on mit HA-State
+    if (this._settings.circ.manual.on !== on) {
+      this._settings.circ.manual.on = on;
+      this._save();
+    }
+
+    // 5. Sync Speed + Dial
+    if (on && pct != null) {
       const p = snap10(clamp(Math.round(pct), 10, 100));
       if (this._settings.circ.manual.speed !== p) {
         this._settings.circ.manual.speed = p;
         this._save();
         this._updateCircDial(p);
       }
-    }
-
-    const tog = r.querySelector('#circ-tog');
-    if (tog && this._settings.circ.activeMode === 'manual') {
-      const m = this._settings.circ.manual;
-      tog.className = `pbtn${m.on && on ? ' on' : ''}`;
-      tog.innerHTML = (m.on && on) ? '⏻&nbsp;&nbsp;Ausschalten' : '⏻&nbsp;&nbsp;Einschalten';
     }
   }
 
