@@ -1,6 +1,6 @@
 // blower-control-card.js v15
 // type: custom:blower-control-card
-const BCC_VERSION = 'v50';
+const BCC_VERSION = 'v51';
 const BCC_DEBUG = false; // set true to enable verbose console logging
 console.log(`%c[BCC] ${BCC_VERSION} loaded`, 'color:#03a9f4;font-weight:bold');
 
@@ -1139,7 +1139,7 @@ class BlowerControlCard extends HTMLElement {
       <text class="pnum" id="light-pnum" x="${CX}" y="${CY + 2}">${bri}</text>
       <text class="punit" x="${CX}" y="${CY + 22}">%</text>
     </svg>
-    <div class="tick-label l">0</div>
+    <div class="tick-label l">11</div>
     <div class="tick-label r">100</div>
   </div>
   <div class="mbtns">
@@ -1162,7 +1162,7 @@ class BlowerControlCard extends HTMLElement {
     ${this._row('ls-rampdn', 'Sonnenuntergang', 0, 120, 1, sc.rampDown, v => v === 0 ? 'Aus' : v + ' min')}
   </div>
   <div class="sec"><div class="seclbl">Helligkeit</div>
-    ${this._row('ls-bri', 'Max Helligkeit', 1, 100, 1, this._settings.light.brightness, v => v + '%')}
+    ${this._row('ls-bri', 'Max Helligkeit', 11, 100, 1, this._settings.light.brightness, v => v + '%')}
   </div>
   <div class="abtn-row">
     <button class="abtn${active ? ' a' : ''}" id="light-sched-act">${active ? '✓ Aktiv' : 'Aktivieren'}</button>
@@ -1282,8 +1282,8 @@ class BlowerControlCard extends HTMLElement {
     const a = ((deg % 360) + 360) % 360;
     const rel = ((a - S_ANG) + 360) % 360;
     let val;
-    if (rel > T_ANG) val = rel > T_ANG + (360 - T_ANG) / 2 ? 0 : 100;
-    else val = Math.round((rel / T_ANG) * 100);
+    if (rel > T_ANG) val = rel > T_ANG + (360 - T_ANG) / 2 ? 11 : 100;
+    else val = Math.max(11, Math.round((rel / T_ANG) * 100));
     this._settings.light.mode = 'manual';
     this._settings.light.brightness = val;
     this._updateLightDial(val);
