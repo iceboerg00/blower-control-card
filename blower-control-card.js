@@ -810,9 +810,11 @@ class BlowerControlCard extends HTMLElement {
     }
     this._save();
     // Re-render content to reflect disabled state
-    r.querySelector('#body').innerHTML = this._renderTab(this._tab);
+    const blowerBody = r.querySelector('#body');
+    if (blowerBody) blowerBody.innerHTML = this._renderTab(this._tab);
     this._bindTab();
-    r.querySelector('#light-body').innerHTML = this._renderLightTab(this._lightTab);
+    const lightBody = r.querySelector('#light-body');
+    if (lightBody) lightBody.innerHTML = this._renderLightTab(this._lightTab);
     this._bindLightTab();
     const circBody = r.querySelector('#circ-body');
     if (circBody) { circBody.innerHTML = this._renderCircTab(this._circTab); this._bindCircTab(); }
@@ -1489,10 +1491,10 @@ class BlowerControlCard extends HTMLElement {
     ${this._row('cf-ustby', 'Standby', 0, 100, 10, u.standby, this._cfs.bind(this))}
   </div>
   <div class="sec"><div class="seclbl">Modus</div>
-    <div class="seg">
-      <button class="seg-btn${u.mode === 'both' ? ' act' : ''}" data-cenv="both">Beide</button>
-      <button class="seg-btn${u.mode === 'only_temp' ? ' act' : ''}" data-cenv="only_temp">Nur Temp</button>
-      <button class="seg-btn${u.mode === 'only_hum' ? ' act' : ''}" data-cenv="only_hum">Nur Feuchte</button>
+    <div class="mgrid">
+      <button class="mbtn${u.mode === 'both' ? ' a' : ''}" data-cenv="both">Beide</button>
+      <button class="mbtn${u.mode === 'only_temp' ? ' a' : ''}" data-cenv="only_temp">Nur Temp</button>
+      <button class="mbtn${u.mode === 'only_hum' ? ' a' : ''}" data-cenv="only_hum">Nur Feuchte</button>
     </div>
   </div>
   <div class="abtn-row">
@@ -1945,7 +1947,21 @@ class BlowerControlCard extends HTMLElement {
     const r = this.shadowRoot;
     const info = r.querySelector('#light-sched-info');
     if (!info) return;
-    this._updateLightSchedInfo(null, null);
+    const ls = this._settings.light;
+    const sc = ls.schedule;
+    const n = nowMin(), s = toMin(sc.start), e = toMin(sc.end);
+    const inW = s <= e ? (n >= s && n < e) : (n >= s || n < e);
+    if (!inW) { this._updateLightSchedInfo('off', 0); return; }
+    const elapsed = ((n - s) + 1440) % 1440;
+    const total = ((e - s) + 1440) % 1440;
+    const toEnd = total - elapsed;
+    if (this._lightRampOk && sc.rampDown > 0 && toEnd <= sc.rampDown) {
+      this._updateLightSchedInfo('sunset', Math.round(ls.brightness * (toEnd / sc.rampDown)));
+    } else if (this._lightRampOk && sc.rampUp > 0 && elapsed < sc.rampUp) {
+      this._updateLightSchedInfo('sunrise', Math.round(ls.brightness * (elapsed / sc.rampUp)));
+    } else {
+      this._updateLightSchedInfo('on', ls.brightness);
+    }
   }
 
   _updateLightSchedInfo(phase, pct) {
@@ -2050,9 +2066,10 @@ class BlowerControlCard extends HTMLElement {
   _evU() {
     const u = this._settings.umwelt;
     const ts = this._hass.states[this._tempE], hs = this._hass.states[this._humE];
-    if (!ts || !hs) return;
-    const t = parseFloat(ts.state), h = parseFloat(hs.state);
-    const tO = !isNaN(t) && t > u.maxTemp, hO = !isNaN(h) && h > u.maxHum;
+    const t = ts ? parseFloat(ts.state) : null;
+    const h = hs ? parseFloat(hs.state) : null;
+    const tO = t !== null && !isNaN(t) && t > u.maxTemp;
+    const hO = h !== null && !isNaN(h) && h > u.maxHum;
     this._setFan(this._shouldRun(u, tO, hO) ? u.speed : u.standby, 'evU');
   }
 
