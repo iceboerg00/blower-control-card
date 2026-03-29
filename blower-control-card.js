@@ -1,6 +1,6 @@
 // blower-control-card.js v15
 // type: custom:blower-control-card
-const BCC_VERSION = 'v44';
+const BCC_VERSION = 'v45';
 console.log(`%c[BCC] ${BCC_VERSION} loaded`, 'color:#03a9f4;font-weight:bold');
 
 const TAG = 'blower-control-card';
@@ -102,6 +102,7 @@ class BlowerControlCard extends HTMLElement {
     this._lightCmdGuard = 0;
     this._lightRampOk = true;
     this._lightWasInSched = false;
+    this._lastLightEvalTime = 0;
     // Circulation fan (Umluft)
     this._circTab = 'manual';
     this._circDragging = false;
@@ -182,7 +183,9 @@ class BlowerControlCard extends HTMLElement {
     this._syncDialFromHA(_fs);
     this._syncHumidifier();
     this._syncLight();
-    this._evalLight();
+    if (Date.now() - this._lastLightEvalTime >= 5000) {
+      this._evalLight();
+    }
     this._syncCircFromHA();
     if (Date.now() - this._circLastEvalTime >= 5000) {
       this._evaluateCirc();
@@ -221,16 +224,19 @@ class BlowerControlCard extends HTMLElement {
     if (this._isDragging) return;
     if (Date.now() < this._cmdGuardUntil) return;
 
-    // 4. Sync manual.on mit Entity-State
-    if (this._settings.manual.on !== isOn) {
-      this._settings.manual.on = isOn;
-      this._save();
+    // 4. Sync manual.on mit Entity-State — nur im manual-Modus
+    if (this._settings.activeMode === 'manual') {
+      if (this._settings.manual.on !== isOn) {
+        this._settings.manual.on = isOn;
+        this._save();
+      }
     }
 
     // 5. Sync Speed + Dial-Visuals
     if (isOn && haPct != null && haPct >= MIN) {
       const rounded = Math.round(haPct);
-      if (this._settings.manual.speed !== rounded) {
+      // Nur im manual-Modus die gespeicherte Geschwindigkeit überschreiben
+      if (this._settings.activeMode === 'manual' && this._settings.manual.speed !== rounded) {
         this._settings.manual.speed = rounded;
         this._save();
       }
@@ -1347,12 +1353,18 @@ class BlowerControlCard extends HTMLElement {
 
   _setLight(pct) {
     if (!this._hass) return;
+    const st = this._hass.states[this._light];
+    const isOn = st?.state === 'on';
+    const curBri = st?.attributes?.brightness;
+
     if (pct <= 0) {
+      if (!isOn) return; // already off — no-op
       this._hass.callService('light', 'turn_off', { entity_id: this._light });
-    } else {
-      const bri = clamp(Math.round(clamp(pct, 1, 100) * 2.55), 1, 255);
-      this._hass.callService('light', 'turn_on', { entity_id: this._light, brightness: bri });
+      return;
     }
+    const bri = clamp(Math.round(clamp(pct, 1, 100) * 2.55), 1, 255);
+    if (isOn && curBri != null && Math.round(curBri) === bri) return; // already at desired brightness — no-op
+    this._hass.callService('light', 'turn_on', { entity_id: this._light, brightness: bri });
   }
 
   /* ── Circulation Fan (Umluft) ──────────────────────────────────────── */
@@ -1681,14 +1693,21 @@ class BlowerControlCard extends HTMLElement {
 
   _setCircFan(pct, src) {
     if (!this._hass) return;
-    console.log(`%c[BCC] circ → ${pct}% (${src})`, 'color:#66bb6a');
+    const st = this._hass.states[this._circFan];
+    const isOn = st?.state === 'on';
+    const curPct = st?.attributes?.percentage;
+
     if (!pct || pct <= 0) {
+      if (!isOn) return; // already off — no-op
+      console.log(`%c[BCC] circ → off (${src})`, 'color:#66bb6a');
       this._hass.callService('fan', 'turn_off', { entity_id: this._circFan });
       return;
     }
     const p = snap10(clamp(Math.round(pct), 10, 100));
-    const st = this._hass.states[this._circFan];
-    if (st?.state === 'on') {
+    if (isOn && curPct != null && Math.round(curPct) === p) return; // already at desired state — no-op
+
+    console.log(`%c[BCC] circ → ${p}% (${src})`, 'color:#66bb6a');
+    if (isOn) {
       this._hass.callService('fan', 'set_percentage', { entity_id: this._circFan, percentage: p });
     } else {
       this._hass.callService('fan', 'turn_on', { entity_id: this._circFan });
@@ -1724,20 +1743,23 @@ class BlowerControlCard extends HTMLElement {
     // 3. Guard für Dial-Sync
     if (this._circDragging || Date.now() < this._circCmdGuard) return;
 
-    // 4. Sync circ.manual.on mit HA-State
-    if (this._settings.circ.manual.on !== on) {
-      this._settings.circ.manual.on = on;
-      this._save();
+    // 4. Sync circ.manual.on mit HA-State — nur im manual-Modus
+    if (this._settings.circ.activeMode === 'manual') {
+      if (this._settings.circ.manual.on !== on) {
+        this._settings.circ.manual.on = on;
+        this._save();
+      }
     }
 
     // 5. Sync Speed + Dial
     if (on && pct != null) {
       const p = snap10(clamp(Math.round(pct), 10, 100));
-      if (this._settings.circ.manual.speed !== p) {
+      // Nur im manual-Modus die gespeicherte Geschwindigkeit überschreiben
+      if (this._settings.circ.activeMode === 'manual' && this._settings.circ.manual.speed !== p) {
         this._settings.circ.manual.speed = p;
         this._save();
-        this._updateCircDial(p);
       }
+      this._updateCircDial(p);
     }
   }
 
@@ -1906,6 +1928,7 @@ class BlowerControlCard extends HTMLElement {
   _evalLight() {
     if (!this._hass) return;
     if (this._lightDragging || Date.now() < this._lightCmdGuard) return;
+    this._lastLightEvalTime = Date.now();
     const ls = this._settings.light;
     if (ls.mode !== 'schedule') return;
     const sc = ls.schedule;
@@ -2093,14 +2116,18 @@ class BlowerControlCard extends HTMLElement {
   /* ── Fan dispatch ────────────────────────────────────────────────────── */
   _setFan(pct, src = '') {
     if (!this._hass) return;
+    const fanSt = this._hass.states[this._fan];
+    const isOn = fanSt?.state === 'on';
+    const curPct = fanSt?.attributes?.percentage;
+
     if (!pct || pct < MIN) {
+      if (!isOn) return; // already off — no-op
       console.log(`%c[BCC] _setFan → turn_off (pct=${pct}) src=${src}`, 'color:#f44336');
       this._hass.callService('fan', 'turn_off', { entity_id: this._fan });
       return;
     }
     const p = Math.round(clamp(pct, MIN, MAX));
-    const fanSt = this._hass.states[this._fan];
-    const isOn = fanSt?.state === 'on';
+    if (isOn && curPct != null && Math.round(curPct) === p) return; // already at desired state — no-op
 
     if (isOn) {
       // Fan already on — just adjust speed
