@@ -1,6 +1,6 @@
 // blower-control-card.js v15
 // type: custom:blower-control-card
-const BCC_VERSION = 'v52';
+const BCC_VERSION = 'v53';
 const BCC_DEBUG = false; // set true to enable verbose console logging
 console.log(`%c[BCC] ${BCC_VERSION} loaded`, 'color:#03a9f4;font-weight:bold');
 
@@ -91,6 +91,7 @@ class BlowerControlCard extends HTMLElement {
     // Light
     this._lightTab = 'manual';
     this._lightDragging = false;
+    this._lightDragBri = null;
     this._lightTabAbort = null;
     this._lightCmdGuard = 0;
     this._lightRampOk = true;
@@ -1204,20 +1205,28 @@ class BlowerControlCard extends HTMLElement {
           if (this._lightDragging) {
             this._lightDragging = false;
             this._lightCmdGuard = Date.now() + 2000;
-            // Einmal senden beim Loslassen
-            if (ls.brightness <= 0) {
+            // Use the drag value for the one-time send (not ls.brightness in schedule mode)
+            const sendBri = this._lightDragBri ?? ls.brightness;
+            this._lightDragBri = null;
+            if (sendBri <= 0) {
               this._hass?.callService('light', 'turn_off', { entity_id: this._light });
             } else {
-              const bri = clamp(Math.round(clamp(ls.brightness, 1, 100) * 2.55), 1, 255);
+              const bri = clamp(Math.round(clamp(sendBri, 1, 100) * 2.55), 1, 255);
               this._hass?.callService('light', 'turn_on', { entity_id: this._light, brightness: bri });
+            }
+            // In schedule mode: don't persist drag value; reset tracker so schedule re-sends
+            if (ls.mode !== 'schedule') {
+              ls.brightness = sendBri;
+            } else {
+              this._lastSentLightBri = null;
             }
             // Status-Badge sofort updaten
             const spct = r.querySelector('#light-spct');
-            if (spct) spct.textContent = ls.brightness > 0 ? ` ${ls.brightness}%` : '';
+            if (spct) spct.textContent = sendBri > 0 ? ` ${sendBri}%` : '';
             const dot = r.querySelector('#light-sdot');
-            if (dot) dot.className = `sdot ${ls.brightness > 0 ? 'on' : 'off'}`;
+            if (dot) dot.className = `sdot ${sendBri > 0 ? 'on' : 'off'}`;
             const lbl = r.querySelector('#light-slbl');
-            if (lbl) lbl.textContent = ls.brightness > 0 ? 'AN' : 'AUS';
+            if (lbl) lbl.textContent = sendBri > 0 ? 'AN' : 'AUS';
             this._save();
           }
         };
@@ -1284,7 +1293,11 @@ class BlowerControlCard extends HTMLElement {
     let val;
     if (rel > T_ANG) val = rel > T_ANG + (360 - T_ANG) / 2 ? 11 : 100;
     else val = Math.round(11 + (rel / T_ANG) * 89);
-    this._settings.light.brightness = val;
+    this._lightDragBri = val;
+    // In schedule mode, never mutate ls.brightness — that's the schedule's target.
+    if (this._settings.light.mode !== 'schedule') {
+      this._settings.light.brightness = val;
+    }
     this._updateLightDial(val);
     // Status-Badge live updaten
     const spct = this.shadowRoot.querySelector('#light-spct');
@@ -1347,6 +1360,11 @@ class BlowerControlCard extends HTMLElement {
         ls.mode = newMode;
         this._save();
       }
+    }
+
+    // 5. In schedule mode, keep dial showing the schedule target (snap back after temporary drag)
+    if (ls.mode === 'schedule' && !this._lightDragBri) {
+      this._updateLightDial(ls.brightness);
     }
   }
 
