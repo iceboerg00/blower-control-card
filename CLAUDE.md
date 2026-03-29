@@ -75,6 +75,21 @@ All four dials share the same geometry constants: `CX=110, CY=110, R=85`, start 
 - **`_syncHAMode()`** keeps the HA `fan` entity's preset/mode attribute aligned with the card's active mode.
 - **Version string:** `BCC_VERSION` constant (top of file, e.g. `'v40'`) — bump this on every release; it appears in the card header and the console log.
 
+## Publishing a New Release
+
+The repo is published at `iceboerg00/blower-control-card` and installable via HACS. GitHub Actions automatically creates a release when a version tag is pushed.
+
+```bash
+# 1. Bump BCC_VERSION in blower-control-card.js (e.g. 'v41')
+git add blower-control-card.js
+git commit -m "chore: release v41.0.0"
+git tag v41.0.0
+git push && git push --tags
+# GitHub Actions creates the release with the JS file attached (~30s)
+```
+
+HACS users will see the update appear automatically in HACS → Updates.
+
 ## UI Language
 
 All user-visible labels are in **German** (e.g. "Manuell", "Zeitfenster", "Zyklus", "Umwelt", "AN/AUS"). Internal variable names and comments are a mix of German and English.
