@@ -1,6 +1,6 @@
 // blower-control-card.js v15
 // type: custom:blower-control-card
-const BCC_VERSION = 'v53';
+const BCC_VERSION = 'v54';
 const BCC_DEBUG = false; // set true to enable verbose console logging
 console.log(`%c[BCC] ${BCC_VERSION} loaded`, 'color:#03a9f4;font-weight:bold');
 
@@ -865,6 +865,7 @@ class BlowerControlCard extends HTMLElement {
 
   /* ── Live status updates for all modes ─────────────────────────────── */
   _updateModeStatus() {
+    this._setRunDot(this._settings.activeMode);
     this._updateZeitStatus();
     this._updateCycleStatus();
     this._updateUmweltStatus();
@@ -1320,7 +1321,6 @@ class BlowerControlCard extends HTMLElement {
 
   _syncLight() {
     if (!this._hass || !this._rendered) return;
-    if (this._lightDragging || Date.now() < this._lightCmdGuard) return;
     const r = this.shadowRoot;
     const st = this._hass.states[this._light];
     if (!st) return;
@@ -1328,7 +1328,7 @@ class BlowerControlCard extends HTMLElement {
     const bri = st.attributes.brightness;
     const ls = this._settings.light;
 
-    // 1. Status badge — always reflects entity
+    // 1. Status badge — always reflects entity (not gated by guard)
     const dot = r.querySelector('#light-sdot');
     const lbl = r.querySelector('#light-slbl');
     const spct = r.querySelector('#light-spct');
@@ -1336,12 +1336,14 @@ class BlowerControlCard extends HTMLElement {
     if (lbl) lbl.textContent = isOn ? 'AN' : 'AUS';
     if (spct) spct.textContent = (isOn && bri != null) ? ` ${Math.round(bri / 2.55)}%` : '';
 
-    // 2. Toggle button — always reflects entity
+    // 2. Toggle button — always reflects entity (not gated by guard)
     const tog = r.querySelector('#light-tog');
     if (tog) {
       tog.className = `pbtn${isOn ? ' on' : ''}`;
       tog.innerHTML = isOn ? '⏻&nbsp;&nbsp;Ausschalten' : '⏻&nbsp;&nbsp;Einschalten';
     }
+
+    if (this._lightDragging || Date.now() < this._lightCmdGuard) return;
 
     // 3. Sync brightness from entity → dial (when on and not in schedule)
     if (isOn && bri != null && ls.mode !== 'schedule') {
@@ -2050,10 +2052,10 @@ class BlowerControlCard extends HTMLElement {
     if (!info || !text) return;
     if (phase === 'sunrise') {
       info.className = 'info-card running';
-      text.textContent = `Sonnenaufgang · ${pct}%`;
+      text.textContent = `Sonnenaufgang · ${pct > 0 ? Math.max(11, pct) : 0}%`;
     } else if (phase === 'sunset') {
       info.className = 'info-card running';
-      text.textContent = `Sonnenuntergang · ${pct}%`;
+      text.textContent = `Sonnenuntergang · ${pct > 0 ? Math.max(11, pct) : 0}%`;
     } else if (phase === 'on') {
       info.className = 'info-card running';
       text.textContent = `Licht an · ${pct}%`;
