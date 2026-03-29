@@ -1,6 +1,6 @@
 // blower-control-card.js v15
 // type: custom:blower-control-card
-const BCC_VERSION = 'v40';
+const BCC_VERSION = 'v41';
 console.log(`%c[BCC] ${BCC_VERSION} loaded`, 'color:#03a9f4;font-weight:bold');
 
 const TAG = 'blower-control-card';
