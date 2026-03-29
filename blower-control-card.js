@@ -1,6 +1,7 @@
 // blower-control-card.js v15
 // type: custom:blower-control-card
-const BCC_VERSION = 'v45';
+const BCC_VERSION = 'v46';
+const BCC_DEBUG = false; // set true to enable verbose console logging
 console.log(`%c[BCC] ${BCC_VERSION} loaded`, 'color:#03a9f4;font-weight:bold');
 
 const TAG = 'blower-control-card';
@@ -81,7 +82,6 @@ class BlowerControlCard extends HTMLElement {
     this._rendered = false;
     this._cfgOpen = false;
     this._lastEvalTime = 0;
-    this._throttledSetFan = throttle((pct, src) => this._setFan(pct, src), 300);
     // Humidifier
     this._humTarget = 60;
     this._humDragging = false;
@@ -90,19 +90,11 @@ class BlowerControlCard extends HTMLElement {
     this._lightTab = 'manual';
     this._lightDragging = false;
     this._lightTabAbort = null;
-    this._throttledSetLight = throttle((pct) => {
-      if (!this._hass) return;
-      if (pct <= 0) {
-        this._hass.callService('light', 'turn_off', { entity_id: this._light });
-      } else {
-        const bri = clamp(Math.round(clamp(pct, 1, 100) * 2.55), 1, 255);
-        this._hass.callService('light', 'turn_on', { entity_id: this._light, brightness: bri });
-      }
-    }, 100);
     this._lightCmdGuard = 0;
     this._lightRampOk = true;
     this._lightWasInSched = false;
     this._lastLightEvalTime = 0;
+    this._saveTimer = null;
     // Circulation fan (Umluft)
     this._circTab = 'manual';
     this._circDragging = false;
@@ -153,7 +145,7 @@ class BlowerControlCard extends HTMLElement {
 
     const _fs = h.states[this._fan];
     if (_fs && this._lastFanState !== _fs.state) {
-      console.log(`%c[BCC] HA: fan=${_fs.state} pct=${_fs.attributes?.percentage} (mode=${this._settings?.activeMode} on=${this._settings?.manual?.on})`, _fs.state === 'on' ? 'color:#4caf50' : 'color:#f44336');
+      BCC_DEBUG && console.log(`%c[BCC] HA: fan=${_fs.state} pct=${_fs.attributes?.percentage} (mode=${this._settings?.activeMode} on=${this._settings?.manual?.on})`, _fs.state === 'on' ? 'color:#4caf50' : 'color:#f44336');
       this._lastFanState = _fs.state;
     }
 
@@ -166,11 +158,11 @@ class BlowerControlCard extends HTMLElement {
       if (fanSt === 'off' && Date.now() - this._lastAssertTime >= 3000) {
         this._assertAttempts++;
         this._lastAssertTime = Date.now();
-        console.log(`%c[BCC] RE-ASSERT #${this._assertAttempts}: fan off but manual.on=true`, 'color:#ff9800;font-weight:bold');
+        BCC_DEBUG && console.log(`%c[BCC] RE-ASSERT #${this._assertAttempts}: fan off but manual.on=true`, 'color:#ff9800;font-weight:bold');
         this._syncHAMode('manual');
         this._setFan(this._settings.manual.speed, 'reassert');
       } else if (fanSt === 'on') {
-        if (this._assertAttempts > 0) console.log(`%c[BCC] fan on, assert reset`, 'color:#4caf50');
+        if (this._assertAttempts > 0) BCC_DEBUG && console.log(`%c[BCC] fan on, assert reset`, 'color:#4caf50');
         this._assertAttempts = 0;
       }
     }
@@ -323,7 +315,12 @@ class BlowerControlCard extends HTMLElement {
       this._settings.umwelt.mode = 'both';
     }
   }
-  _save() { try { localStorage.setItem(this._key, JSON.stringify(this._settings)); } catch {} }
+  _save() {
+    clearTimeout(this._saveTimer);
+    this._saveTimer = setTimeout(() => {
+      try { localStorage.setItem(this._key, JSON.stringify(this._settings)); } catch {}
+    }, 150);
+  }
   _merge(a, b) {
     const o = { ...a };
     for (const k in b) {
@@ -817,9 +814,9 @@ class BlowerControlCard extends HTMLElement {
       s.circ.activeMode = 'off';
       s.circ.manual.on = false;
       this._setCircFan(0, 'master-off');
-      console.log('%c[BCC] Card DISABLED — all off', 'color:#f44336;font-weight:bold');
+      BCC_DEBUG && console.log('%c[BCC] Card DISABLED — all off', 'color:#f44336;font-weight:bold');
     } else {
-      console.log('%c[BCC] Card ENABLED', 'color:#4caf50;font-weight:bold');
+      BCC_DEBUG && console.log('%c[BCC] Card ENABLED', 'color:#4caf50;font-weight:bold');
     }
     this._save();
     // Re-render content to reflect disabled state
@@ -1066,7 +1063,7 @@ class BlowerControlCard extends HTMLElement {
 
   _setHumidity(val) {
     if (!this._hass) return;
-    console.log(`%c[BCC] humidifier set_humidity → ${val}%`, 'color:#03a9f4');
+    BCC_DEBUG && console.log(`%c[BCC] humidifier set_humidity → ${val}%`, 'color:#03a9f4');
     this._hass.callService('humidifier', 'set_humidity', {
       entity_id: this._humidifier, humidity: val
     });
@@ -1076,7 +1073,7 @@ class BlowerControlCard extends HTMLElement {
     if (!this._hass) return;
     const st = this._hass.states[this._humidifier];
     const isOn = st?.state === 'on';
-    console.log(`%c[BCC] humidifier → ${isOn ? 'off' : 'on'}`, isOn ? 'color:#f44336' : 'color:#4caf50');
+    BCC_DEBUG && console.log(`%c[BCC] humidifier → ${isOn ? 'off' : 'on'}`, isOn ? 'color:#f44336' : 'color:#4caf50');
     this._hass.callService('humidifier', isOn ? 'turn_off' : 'turn_on', {
       entity_id: this._humidifier
     });
@@ -1360,11 +1357,13 @@ class BlowerControlCard extends HTMLElement {
     if (pct <= 0) {
       if (!isOn) return; // already off — no-op
       this._hass.callService('light', 'turn_off', { entity_id: this._light });
+      this._lightCmdGuard = Date.now() + 2000;
       return;
     }
     const bri = clamp(Math.round(clamp(pct, 1, 100) * 2.55), 1, 255);
     if (isOn && curBri != null && Math.round(curBri) === bri) return; // already at desired brightness — no-op
     this._hass.callService('light', 'turn_on', { entity_id: this._light, brightness: bri });
+    this._lightCmdGuard = Date.now() + 2000;
   }
 
   /* ── Circulation Fan (Umluft) ──────────────────────────────────────── */
@@ -1699,14 +1698,14 @@ class BlowerControlCard extends HTMLElement {
 
     if (!pct || pct <= 0) {
       if (!isOn) return; // already off — no-op
-      console.log(`%c[BCC] circ → off (${src})`, 'color:#66bb6a');
+      BCC_DEBUG && console.log(`%c[BCC] circ → off (${src})`, 'color:#66bb6a');
       this._hass.callService('fan', 'turn_off', { entity_id: this._circFan });
       return;
     }
     const p = snap10(clamp(Math.round(pct), 10, 100));
     if (isOn && curPct != null && Math.round(curPct) === p) return; // already at desired state — no-op
 
-    console.log(`%c[BCC] circ → ${p}% (${src})`, 'color:#66bb6a');
+    BCC_DEBUG && console.log(`%c[BCC] circ → ${p}% (${src})`, 'color:#66bb6a');
     if (isOn) {
       this._hass.callService('fan', 'set_percentage', { entity_id: this._circFan, percentage: p });
     } else {
@@ -1954,7 +1953,7 @@ class BlowerControlCard extends HTMLElement {
       const elapsedS = ((n - s) + 1440) % 1440;
       if (elapsedS >= sc.rampUp) {
         this._lightRampOk = false;
-        console.log('%c[BCC] light interrupted mid-schedule, ramps disabled', 'color:#ff9800');
+        BCC_DEBUG && console.log('%c[BCC] light interrupted mid-schedule, ramps disabled', 'color:#ff9800');
       }
     }
 
@@ -2030,7 +2029,7 @@ class BlowerControlCard extends HTMLElement {
     if (this._settings.cardDisabled) return;
     if (Date.now() < this._cmdGuardUntil) return;
     this._lastEvalTime = Date.now();
-    console.log(`%c[BCC] _evaluate() mode=${this._settings.activeMode}`, 'color:#9c27b0');
+    BCC_DEBUG && console.log(`%c[BCC] _evaluate() mode=${this._settings.activeMode}`, 'color:#9c27b0');
     switch (this._settings.activeMode) {
       case 'zeitfenster': this._evZ(); break;
       case 'zyklus':      this._evC(); break;
@@ -2100,7 +2099,7 @@ class BlowerControlCard extends HTMLElement {
     st.count = count;
     st.since = phase === 'waiting' ? null : Date.now();
     this._save();
-    console.log(`%c[BCC] cycle → ${phase} count=${count}`, 'color:#9c27b0');
+    BCC_DEBUG && console.log(`%c[BCC] cycle → ${phase} count=${count}`, 'color:#9c27b0');
   }
 
   _evU() {
@@ -2122,7 +2121,7 @@ class BlowerControlCard extends HTMLElement {
 
     if (!pct || pct < MIN) {
       if (!isOn) return; // already off — no-op
-      console.log(`%c[BCC] _setFan → turn_off (pct=${pct}) src=${src}`, 'color:#f44336');
+      BCC_DEBUG && console.log(`%c[BCC] _setFan → turn_off (pct=${pct}) src=${src}`, 'color:#f44336');
       this._hass.callService('fan', 'turn_off', { entity_id: this._fan });
       return;
     }
@@ -2131,15 +2130,15 @@ class BlowerControlCard extends HTMLElement {
 
     if (isOn) {
       // Fan already on — just adjust speed
-      console.log(`%c[BCC] _setFan → set_percentage(${p}%) src=${src}`, 'color:#4caf50');
+      BCC_DEBUG && console.log(`%c[BCC] _setFan → set_percentage(${p}%) src=${src}`, 'color:#4caf50');
       this._hass.callService('fan', 'set_percentage', { entity_id: this._fan, percentage: p });
     } else {
       // Fan is off — turn on first, then set speed after delay
-      console.log(`%c[BCC] _setFan → turn_on + set_percentage(${p}%) src=${src}`, 'color:#4caf50;font-weight:bold');
+      BCC_DEBUG && console.log(`%c[BCC] _setFan → turn_on + set_percentage(${p}%) src=${src}`, 'color:#4caf50;font-weight:bold');
       this._hass.callService('fan', 'turn_on', { entity_id: this._fan });
       setTimeout(() => {
         if (!this._hass) return;
-        console.log(`%c[BCC] _setFan → delayed set_percentage(${p}%) src=${src}`, 'color:#4caf50');
+        BCC_DEBUG && console.log(`%c[BCC] _setFan → delayed set_percentage(${p}%) src=${src}`, 'color:#4caf50');
         this._hass.callService('fan', 'set_percentage', { entity_id: this._fan, percentage: p });
       }, 1500);
     }
