@@ -1,6 +1,6 @@
 // blower-control-card.js v15
 // type: custom:blower-control-card
-const BCC_VERSION = 'v41';
+const BCC_VERSION = 'v42';
 console.log(`%c[BCC] ${BCC_VERSION} loaded`, 'color:#03a9f4;font-weight:bold');
 
 const TAG = 'blower-control-card';
@@ -342,10 +342,6 @@ class BlowerControlCard extends HTMLElement {
     <div class="toprow">
       <div class="title"><span class="ticon">💨</span> Blower Control <span class="ver">${BCC_VERSION}</span></div>
       <div class="hdr-right">
-        <div class="status-badge">
-          <span class="sdot off" id="sdot"></span>
-          <span id="slbl">AUS</span><span class="spct" id="spct"></span>
-        </div>
         <button class="master-btn${this._settings.cardDisabled ? ' off' : ''}" id="master-btn" title="Karte ein/ausschalten">⏻</button>
         <button class="gear-btn${this._cfgOpen ? ' open' : ''}" id="gear-btn" title="Entitäten konfigurieren">⚙</button>
       </div>
@@ -384,12 +380,23 @@ class BlowerControlCard extends HTMLElement {
 
     ${this._moduleOrder.map((mod, i) => {
       const html = mod === 'blower' ? `
-    <div class="tabbar">
-      ${TABS.map(t => `<button class="tab${t === this._tab ? ' act' : ''}${s.activeMode === t ? ' run' : ''}" data-tab="${t}">
-        ${NAMES[t]}${s.activeMode === t ? '<span class="rdot"></span>' : ''}
-      </button>`).join('')}
-    </div>
-    <div id="body">${this._renderTab(this._tab)}</div>`
+    <div class="blower-section">
+      <div class="toprow" style="margin-bottom:8px">
+        <div class="title"><span class="ticon">💨</span> Lüfter</div>
+        <div class="hdr-right">
+          <div class="status-badge">
+            <span class="sdot off" id="sdot"></span>
+            <span id="slbl">AUS</span><span class="spct" id="spct"></span>
+          </div>
+        </div>
+      </div>
+      <div class="tabbar">
+        ${TABS.map(t => `<button class="tab${t === this._tab ? ' act' : ''}${s.activeMode === t ? ' run' : ''}" data-tab="${t}">
+          ${NAMES[t]}${s.activeMode === t ? '<span class="rdot"></span>' : ''}
+        </button>`).join('')}
+      </div>
+      <div id="body">${this._renderTab(this._tab)}</div>
+    </div>`
         : mod === 'humidifier' ? this._renderHumidifier()
         : mod === 'light' ? this._renderLight()
         : mod === 'circ' ? this._renderCirc()
@@ -2152,7 +2159,7 @@ ha-card{overflow:hidden;border-radius:16px}
 .gear-btn{background:none;border:none;color:var(--secondary-text-color,#888);font-size:1.15em;cursor:pointer;padding:4px;border-radius:8px;transition:color .2s,transform .3s;line-height:1}
 .gear-btn:hover{color:var(--primary-text-color)}
 .gear-btn.open{color:var(--primary-color,#03a9f4);transform:rotate(60deg)}
-.cc.card-disabled>.chips,.cc.card-disabled>.tabbar,.cc.card-disabled>#body,.cc.card-disabled>.divider,.cc.card-disabled>.light-section,.cc.card-disabled>.hum-section,.cc.card-disabled>.circ-section{opacity:.3;pointer-events:none}
+.cc.card-disabled>.chips,.cc.card-disabled>.blower-section,.cc.card-disabled>.divider,.cc.card-disabled>.light-section,.cc.card-disabled>.hum-section,.cc.card-disabled>.circ-section{opacity:.3;pointer-events:none}
 .cfg-panel{max-height:0;overflow:hidden;transition:max-height .35s ease}
 .cfg-panel.open{max-height:800px}
 .cfg-row{display:flex;flex-direction:column;gap:3px}
