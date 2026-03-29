@@ -1,6 +1,6 @@
 // blower-control-card.js v15
 // type: custom:blower-control-card
-const BCC_VERSION = 'v48';
+const BCC_VERSION = 'v49';
 const BCC_DEBUG = false; // set true to enable verbose console logging
 console.log(`%c[BCC] ${BCC_VERSION} loaded`, 'color:#03a9f4;font-weight:bold');
 
@@ -96,6 +96,7 @@ class BlowerControlCard extends HTMLElement {
     this._lightRampOk = true;
     this._lightWasInSched = false;
     this._lastLightEvalTime = 0;
+    this._lastSentLightBri = null;
     this._saveTimer = null;
     // Circulation fan (Umluft)
     this._circTab = 'manual';
@@ -1359,12 +1360,18 @@ class BlowerControlCard extends HTMLElement {
     if (pct <= 0) {
       if (!isOn) return; // already off — no-op
       this._hass.callService('light', 'turn_off', { entity_id: this._light });
+      this._lastSentLightBri = 0;
       this._lightCmdGuard = Date.now() + 2000;
       return;
     }
     const bri = clamp(Math.round(clamp(pct, 1, 100) * 2.55), 1, 255);
-    if (isOn && curBri != null && Math.abs(Math.round(curBri) - bri) <= 2) return; // already at desired brightness (±2 tolerance for HA rounding) — no-op
+    // Only send if desired brightness changed from last sent value.
+    // Do NOT compare against HA-reported brightness — hardware minimums cause HA to report
+    // a higher value than sent (e.g. bri=8 sent, bri=28 reported for 11% hardware min),
+    // which would cause a perpetual re-send loop every 5s.
+    if (bri === this._lastSentLightBri) return;
     this._hass.callService('light', 'turn_on', { entity_id: this._light, brightness: bri });
+    this._lastSentLightBri = bri;
     this._lightCmdGuard = Date.now() + 2000;
   }
 
