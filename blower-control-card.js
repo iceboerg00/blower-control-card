@@ -1,6 +1,6 @@
 // blower-control-card.js v15
 // type: custom:blower-control-card
-const BCC_VERSION = 'v54';
+const BCC_VERSION = 'v55';
 const BCC_DEBUG = false; // set true to enable verbose console logging
 console.log(`%c[BCC] ${BCC_VERSION} loaded`, 'color:#03a9f4;font-weight:bold');
 
@@ -47,6 +47,7 @@ function toMin(t) { const [h, m] = t.split(':').map(Number); return h * 60 + m; 
 function nowSec() { const d = new Date(); return d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds(); }
 function toSec(t) { const [h, m] = t.split(':').map(Number); return h * 3600 + m * 60; }
 function fmtMin(ms) {
+  if (ms <= 0) return 'jetzt';
   const m = Math.floor(ms / 60000);
   return m > 0 ? `${m} min` : `< 1 min`;
 }
@@ -186,7 +187,6 @@ class BlowerControlCard extends HTMLElement {
     if (Date.now() - this._circLastEvalTime >= 5000) {
       this._evaluateCirc();
     }
-    this._updateCircStatus();
     this._updateCircModeStatus();
     this._updateSensors();
     this._updateStatus();
@@ -1347,7 +1347,7 @@ class BlowerControlCard extends HTMLElement {
 
     // 3. Sync brightness from entity → dial (when on and not in schedule)
     if (isOn && bri != null && ls.mode !== 'schedule') {
-      const pct = Math.round(bri / 2.55);
+      const pct = Math.max(11, Math.round(bri / 2.55));
       if (ls.brightness !== pct) {
         ls.brightness = pct;
         this._save();
@@ -1799,21 +1799,6 @@ class BlowerControlCard extends HTMLElement {
     }
   }
 
-  _updateCircStatus() {
-    if (!this._hass || !this._rendered) return;
-    const r = this.shadowRoot;
-    const st = this._hass.states[this._circFan];
-    if (!st) return;
-    const on = st.state === 'on';
-    const pct = st.attributes?.percentage;
-    const dot = r.querySelector('#circ-sdot');
-    const lbl = r.querySelector('#circ-slbl');
-    const spctEl = r.querySelector('#circ-spct');
-    if (dot) dot.className = `sdot ${on ? 'on' : 'off'}`;
-    if (lbl) lbl.textContent = on ? 'AN' : 'AUS';
-    if (spctEl && !this._circDragging) spctEl.textContent = (on && pct != null) ? ` ${Math.round(pct)}%` : '';
-  }
-
   _evaluateCirc() {
     if (!this._hass || !this._settings) return;
     if (this._settings.cardDisabled) return;
@@ -1835,20 +1820,23 @@ class BlowerControlCard extends HTMLElement {
 
   _evCircC() {
     const z = this._settings.circ.zyklus, st = z._state;
+
+    // Safety reset: if state is stuck for > 48h, reset
     if (st.since && Date.now() - st.since > 172800000) {
-      st.phase = 'waiting'; st.count = 0; st.since = null;
+      this._cycleTransition(st, 'waiting', 0);
     }
+
     const n = nowMin(), sm = toMin(z.start);
     const max = z.repetitions === 0 ? Infinity : z.repetitions;
 
     if (st.phase === 'waiting') {
       if (n >= sm && n < sm + 2) {
-        st.phase = 'run'; st.count = 0; st.since = Date.now();
+        this._cycleTransition(st, 'run', 0);
         this._setCircFan(z.speed, 'evCircC-start');
       } else {
         this._setCircFan(z.standby, 'evCircC-wait');
       }
-      this._save(); return;
+      return;
     }
 
     const elapsed = (Date.now() - st.since) / 60000;
@@ -1857,26 +1845,25 @@ class BlowerControlCard extends HTMLElement {
       if (elapsed >= z.runtime) {
         const newCount = st.count + 1;
         if (newCount >= max) {
-          st.phase = 'waiting'; st.count = 0; st.since = null;
+          this._cycleTransition(st, 'waiting', 0);
           this._setCircFan(z.standby, 'evCircC-done');
         } else {
-          st.phase = 'pause'; st.count = newCount; st.since = Date.now();
+          this._cycleTransition(st, 'pause', newCount);
           this._setCircFan(z.standby, 'evCircC-pause');
         }
       } else {
         this._setCircFan(z.speed, 'evCircC-run');
       }
-      this._save(); return;
+      return;
     }
 
     if (st.phase === 'pause') {
       if (elapsed >= z.pause) {
-        st.phase = 'run'; st.since = Date.now();
+        this._cycleTransition(st, 'run', st.count);
         this._setCircFan(z.speed, 'evCircC-resume');
       } else {
         this._setCircFan(z.standby, 'evCircC-pausing');
       }
-      this._save(); return;
     }
   }
 
@@ -1898,6 +1885,7 @@ class BlowerControlCard extends HTMLElement {
   }
 
   _updateCircModeStatus() {
+    this._setCircRunDot(this._settings.circ.activeMode);
     this._updateCircZeitStatus();
     this._updateCircCycleStatus();
     this._updateCircUmweltStatus();
