@@ -1,6 +1,6 @@
 // blower-control-card.js v15
 // type: custom:blower-control-card
-const BCC_VERSION = 'v43';
+const BCC_VERSION = 'v44';
 console.log(`%c[BCC] ${BCC_VERSION} loaded`, 'color:#03a9f4;font-weight:bold');
 
 const TAG = 'blower-control-card';
@@ -233,8 +233,8 @@ class BlowerControlCard extends HTMLElement {
       if (this._settings.manual.speed !== rounded) {
         this._settings.manual.speed = rounded;
         this._save();
-        this._updateDialVisuals(rounded);
       }
+      this._updateDialVisuals(rounded);
     }
   }
 
@@ -2143,7 +2143,7 @@ class BlowerControlCard extends HTMLElement {
     const st = this._hass.states[this._fan], on = st?.state === 'on';
     dot.className = `sdot ${on ? 'on' : 'off'}`;
     lbl.textContent = on ? 'AN' : 'AUS';
-    pct.textContent = (on && st.attributes.percentage != null) ? ` ${Math.round(st.attributes.percentage)}%` : '';
+    if (pct && !this._isDragging) pct.textContent = (on && st.attributes.percentage != null) ? ` ${Math.round(st.attributes.percentage)}%` : '';
   }
 
   /* ── CSS (identical design) ──────────────────────────────────────────── */
