@@ -1,6 +1,6 @@
 // blower-control-card.js v15
 // type: custom:blower-control-card
-const BCC_VERSION = 'v55';
+const BCC_VERSION = 'v56';
 const BCC_DEBUG = false; // set true to enable verbose console logging
 console.log(`%c[BCC] ${BCC_VERSION} loaded`, 'color:#03a9f4;font-weight:bold');
 
@@ -100,12 +100,14 @@ class BlowerControlCard extends HTMLElement {
     this._lastLightEvalTime = 0;
     this._lastSentLightBri = null;
     this._saveTimer = null;
+    this._fanOnTimer = null;
     // Circulation fan (Umluft)
     this._circTab = 'manual';
     this._circDragging = false;
     this._circTabAbort = null;
     this._circCmdGuard = 0;
     this._circLastEvalTime = 0;
+    this._circFanOnTimer = null;
   }
 
   /* ── Config ──────────────────────────────────────────────────────────── */
@@ -1274,11 +1276,13 @@ class BlowerControlCard extends HTMLElement {
       schedRange('#ls-bri', v => ls.brightness = v, v => v + '%');
       r.querySelector('#light-sched-act')?.addEventListener('click', () => {
         ls.mode = 'schedule'; this._save();
+        this._setLightRunDot('schedule');
         r.querySelector('#light-body').innerHTML = this._renderLightTab('schedule');
         this._bindLightTab(); this._evalLight();
       }, sig);
       r.querySelector('#light-sched-off')?.addEventListener('click', () => {
         ls.mode = 'off'; this._save();
+        this._setLightRunDot('off');
         this._hass?.callService('light', 'turn_off', { entity_id: this._light });
         r.querySelector('#light-body').innerHTML = this._renderLightTab('schedule');
         this._bindLightTab();
@@ -1342,6 +1346,9 @@ class BlowerControlCard extends HTMLElement {
       tog.className = `pbtn${isOn ? ' on' : ''}`;
       tog.innerHTML = isOn ? '⏻&nbsp;&nbsp;Ausschalten' : '⏻&nbsp;&nbsp;Einschalten';
     }
+
+    // 2b. Light tab run dot — always reflects active mode (not gated by guard)
+    this._setLightRunDot(ls.mode);
 
     if (this._lightDragging || Date.now() < this._lightCmdGuard) return;
 
@@ -1727,6 +1734,16 @@ class BlowerControlCard extends HTMLElement {
     });
   }
 
+  _setLightRunDot(mode) {
+    this.shadowRoot.querySelectorAll('.light-tab').forEach(b => {
+      const on = b.dataset.ltab === mode;
+      b.classList.toggle('run', on);
+      let d = b.querySelector('.rdot');
+      if (on && !d) { d = document.createElement('span'); d.className = 'rdot'; b.appendChild(d); }
+      else if (!on && d) d.remove();
+    });
+  }
+
   _setCircFan(pct, src) {
     if (!this._hass) return;
     const st = this._hass.states[this._circFan];
@@ -1734,6 +1751,7 @@ class BlowerControlCard extends HTMLElement {
     const curPct = st?.attributes?.percentage;
 
     if (!pct || pct <= 0) {
+      clearTimeout(this._circFanOnTimer); this._circFanOnTimer = null;
       if (!isOn) return; // already off — no-op
       BCC_DEBUG && console.log(`%c[BCC] circ → off (${src})`, 'color:#66bb6a');
       this._hass.callService('fan', 'turn_off', { entity_id: this._circFan });
@@ -1747,7 +1765,9 @@ class BlowerControlCard extends HTMLElement {
       this._hass.callService('fan', 'set_percentage', { entity_id: this._circFan, percentage: p });
     } else {
       this._hass.callService('fan', 'turn_on', { entity_id: this._circFan });
-      setTimeout(() => {
+      clearTimeout(this._circFanOnTimer);
+      this._circFanOnTimer = setTimeout(() => {
+        this._circFanOnTimer = null;
         this._hass?.callService('fan', 'set_percentage', { entity_id: this._circFan, percentage: p });
       }, 1500);
     }
@@ -2150,6 +2170,7 @@ class BlowerControlCard extends HTMLElement {
     const curPct = fanSt?.attributes?.percentage;
 
     if (!pct || pct < MIN) {
+      clearTimeout(this._fanOnTimer); this._fanOnTimer = null;
       if (!isOn) return; // already off — no-op
       BCC_DEBUG && console.log(`%c[BCC] _setFan → turn_off (pct=${pct}) src=${src}`, 'color:#f44336');
       this._hass.callService('fan', 'turn_off', { entity_id: this._fan });
@@ -2166,7 +2187,9 @@ class BlowerControlCard extends HTMLElement {
       // Fan is off — turn on first, then set speed after delay
       BCC_DEBUG && console.log(`%c[BCC] _setFan → turn_on + set_percentage(${p}%) src=${src}`, 'color:#4caf50;font-weight:bold');
       this._hass.callService('fan', 'turn_on', { entity_id: this._fan });
-      setTimeout(() => {
+      clearTimeout(this._fanOnTimer);
+      this._fanOnTimer = setTimeout(() => {
+        this._fanOnTimer = null;
         if (!this._hass) return;
         BCC_DEBUG && console.log(`%c[BCC] _setFan → delayed set_percentage(${p}%) src=${src}`, 'color:#4caf50');
         this._hass.callService('fan', 'set_percentage', { entity_id: this._fan, percentage: p });
