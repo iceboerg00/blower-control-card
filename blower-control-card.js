@@ -1,6 +1,6 @@
 // blower-control-card.js v15
 // type: custom:blower-control-card
-const BCC_VERSION = 'v56';
+const BCC_VERSION = 'v57';
 const BCC_DEBUG = false; // set true to enable verbose console logging
 console.log(`%c[BCC] ${BCC_VERSION} loaded`, 'color:#03a9f4;font-weight:bold');
 
@@ -297,6 +297,7 @@ class BlowerControlCard extends HTMLElement {
     return {
       cardDisabled: false,
       activeMode: 'off',
+      autoOffUntil: null,
       manual: { on: false, speed: 50 },
       zeitfenster: { start: '08:00', end: '20:00', speed: 75, standby: 25 },
       zyklus: {
@@ -311,6 +312,7 @@ class BlowerControlCard extends HTMLElement {
       }
       ,circ: {
         activeMode: 'off',
+        autoOffUntil: null,
         manual: { on: false, speed: 50 },
         zeitfenster: { start: '08:00', end: '20:00', speed: 80, standby: 0 },
         zyklus: {
@@ -558,6 +560,17 @@ class BlowerControlCard extends HTMLElement {
     <button id="tog" class="pbtn${m.on ? ' on' : ''}">${m.on ? '⏻&nbsp;&nbsp;Ausschalten' : '⏻&nbsp;&nbsp;Einschalten'}</button>
     <button class="abtn${isAct ? ' a' : ''}" data-act="manual">${isAct ? '✓ Aktiv' : 'Aktivieren'}</button>
   </div>
+  <div class="srow" style="margin-top:8px">
+    <div class="slbl"><span>Auto-Aus</span></div>
+    <select id="auto-off-sel" class="cfg-input" style="width:auto;padding:4px 8px">
+      <option value="0">Aus</option>
+      <option value="1">1 Stunde</option>
+      <option value="2">2 Stunden</option>
+      <option value="4">4 Stunden</option>
+      <option value="8">8 Stunden</option>
+    </select>
+  </div>
+  <div id="auto-off-countdown" class="info-card running" style="display:none;margin-top:6px"></div>
 </div>`;
   }
 
@@ -704,6 +717,13 @@ class BlowerControlCard extends HTMLElement {
       }
       const tog = r.querySelector('#tog');
       if (tog) tog.addEventListener('click', () => this._toggleManual(), sig);
+      const sel = r.querySelector('#auto-off-sel');
+      if (sel) sel.addEventListener('change', () => {
+        const h = parseInt(sel.value);
+        s.autoOffUntil = h === 0 ? null : Date.now() + h * 3600000;
+        this._save();
+        this._updateStatus();
+      }, sig);
     }
 
     if (t === 'zeitfenster') {
@@ -783,6 +803,11 @@ class BlowerControlCard extends HTMLElement {
   _toggleManual() {
     const s = this._settings, r = this.shadowRoot;
     s.manual.on = !s.manual.on;
+    if (!s.manual.on && s.autoOffUntil) {
+      s.autoOffUntil = null;
+      const sel = r.querySelector('#auto-off-sel');
+      if (sel) sel.value = '0';
+    }
     s.activeMode = 'manual';
     this._assertAttempts = 0;
     this._cmdGuardUntil = Date.now() + 2000;
@@ -901,6 +926,21 @@ class BlowerControlCard extends HTMLElement {
     this._updateZeitStatus();
     this._updateCycleStatus();
     this._updateUmweltStatus();
+    this._updateManualStatus();
+  }
+
+  _updateManualStatus() {
+    const r = this.shadowRoot;
+    const el = r.querySelector('#auto-off-countdown');
+    if (!el) return;
+    const until = this._settings.autoOffUntil;
+    if (!until) { el.style.display = 'none'; return; }
+    const rem = Math.max(0, until - Date.now());
+    const totMin = Math.ceil(rem / 60000);
+    const h = Math.floor(totMin / 60), m = totMin % 60;
+    const txt = h > 0 ? `${h}h ${m}min` : `${m} min`;
+    el.style.display = '';
+    el.textContent = `Manuell · Aus in ${txt}`;
   }
 
   _updateZeitStatus() {
@@ -1520,6 +1560,17 @@ class BlowerControlCard extends HTMLElement {
     <button id="circ-tog" class="pbtn${m.on ? ' on' : ''}">${m.on ? '⏻&nbsp;&nbsp;Ausschalten' : '⏻&nbsp;&nbsp;Einschalten'}</button>
     <button class="abtn${isAct ? ' a' : ''}" data-cact="manual">${isAct ? '✓ Aktiv' : 'Aktivieren'}</button>
   </div>
+  <div class="srow" style="margin-top:8px">
+    <div class="slbl"><span>Auto-Aus</span></div>
+    <select id="circ-auto-off-sel" class="cfg-input" style="width:auto;padding:4px 8px">
+      <option value="0">Aus</option>
+      <option value="1">1 Stunde</option>
+      <option value="2">2 Stunden</option>
+      <option value="4">4 Stunden</option>
+      <option value="8">8 Stunden</option>
+    </select>
+  </div>
+  <div id="circ-auto-off-countdown" class="info-card running" style="display:none;margin-top:6px"></div>
 </div>`;
   }
 
@@ -1656,6 +1707,13 @@ class BlowerControlCard extends HTMLElement {
       }
       const tog = r.querySelector('#circ-tog');
       if (tog) tog.addEventListener('click', () => this._toggleCircManual(), sig);
+      const csel = r.querySelector('#circ-auto-off-sel');
+      if (csel) csel.addEventListener('change', () => {
+        const h = parseInt(csel.value);
+        cs.autoOffUntil = h === 0 ? null : Date.now() + h * 3600000;
+        this._save();
+        this._updateCircModeStatus();
+      }, sig);
     }
 
     if (t === 'zeitfenster') {
@@ -1730,6 +1788,11 @@ class BlowerControlCard extends HTMLElement {
   _toggleCircManual() {
     const cs = this._settings.circ, r = this.shadowRoot;
     cs.manual.on = !cs.manual.on;
+    if (!cs.manual.on && cs.autoOffUntil) {
+      cs.autoOffUntil = null;
+      const csel = r.querySelector('#circ-auto-off-sel');
+      if (csel) csel.value = '0';
+    }
     cs.activeMode = 'manual';
     this._circCmdGuard = Date.now() + 2000;
     this._setCircFan(cs.manual.on ? cs.manual.speed : 0, 'toggle');
@@ -1871,8 +1934,18 @@ class BlowerControlCard extends HTMLElement {
     if (!this._hass || !this._settings) return;
     if (this._settings.cardDisabled) return;
     if (this._circDragging || Date.now() < this._circCmdGuard) return;
-    this._circLastEvalTime = Date.now();
+    // Auto-off timer check
     const cs = this._settings.circ;
+    if (cs.autoOffUntil && Date.now() >= cs.autoOffUntil) {
+      cs.autoOffUntil = null;
+      cs.manual.on = false;
+      cs.activeMode = 'off';
+      this._save();
+      this._setCircFan(0, 'circ-auto-off');
+      this._updateCircModeStatus();
+      return;
+    }
+    this._circLastEvalTime = Date.now();
     switch (cs.activeMode) {
       case 'zeitfenster': this._evCircZ(); break;
       case 'zyklus':      this._evCircC(); break;
@@ -1959,6 +2032,21 @@ class BlowerControlCard extends HTMLElement {
     this._updateCircZeitStatus();
     this._updateCircCycleStatus();
     this._updateCircUmweltStatus();
+    this._updateCircManualStatus();
+  }
+
+  _updateCircManualStatus() {
+    const r = this.shadowRoot;
+    const el = r.querySelector('#circ-auto-off-countdown');
+    if (!el) return;
+    const until = this._settings.circ.autoOffUntil;
+    if (!until) { el.style.display = 'none'; return; }
+    const rem = Math.max(0, until - Date.now());
+    const totMin = Math.ceil(rem / 60000);
+    const h = Math.floor(totMin / 60), m = totMin % 60;
+    const txt = h > 0 ? `${h}h ${m}min` : `${m} min`;
+    el.style.display = '';
+    el.textContent = `Manuell · Aus in ${txt}`;
   }
 
   _updateCircZeitStatus() {
@@ -2141,6 +2229,17 @@ class BlowerControlCard extends HTMLElement {
     if (this._settings.cardDisabled) return;
     if (Date.now() < this._cmdGuardUntil) return;
     this._lastEvalTime = Date.now();
+    // Auto-off timer check
+    if (this._settings.autoOffUntil && Date.now() >= this._settings.autoOffUntil) {
+      this._settings.autoOffUntil = null;
+      this._settings.manual.on = false;
+      this._settings.activeMode = 'off';
+      this._save();
+      this._setFan(0, 'auto-off');
+      this._updateStatus();
+      this._updateModeStatus();
+      return;
+    }
     BCC_DEBUG && console.log(`%c[BCC] _evaluate() mode=${this._settings.activeMode}`, 'color:#9c27b0');
     switch (this._settings.activeMode) {
       case 'zeitfenster': this._evZ(); break;
