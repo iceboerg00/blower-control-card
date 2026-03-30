@@ -108,6 +108,9 @@ class BlowerControlCard extends HTMLElement {
     this._circCmdGuard = 0;
     this._circLastEvalTime = 0;
     this._circFanOnTimer = null;
+    // Umwelt hysteresis state
+    this._umweltActive = false;
+    this._circUmweltActive = false;
   }
 
   /* ── Config ──────────────────────────────────────────────────────────── */
@@ -299,7 +302,7 @@ class BlowerControlCard extends HTMLElement {
         start: '08:00', runtime: 15, pause: 45, repetitions: 4, speed: 80, standby: 25,
         _state: { phase: 'waiting', count: 0, since: null }
       },
-      umwelt: { mode: 'both', maxTemp: 28, maxHum: 70, speed: 100, standby: 25 },
+      umwelt: { mode: 'both', maxTemp: 28, maxHum: 70, speed: 100, standby: 25, hysteresis: 1.0 },
       light: {
         mode: 'off',
         brightness: 100,
@@ -313,7 +316,7 @@ class BlowerControlCard extends HTMLElement {
           start: '08:00', runtime: 15, pause: 45, repetitions: 4, speed: 80, standby: 0,
           _state: { phase: 'waiting', count: 0, since: null }
         },
-        umwelt: { mode: 'both', maxTemp: 28, maxHum: 70, speed: 100, standby: 0 }
+        umwelt: { mode: 'both', maxTemp: 28, maxHum: 70, speed: 100, standby: 0, hysteresis: 1.0 }
       }
     };
   }
@@ -635,6 +638,7 @@ class BlowerControlCard extends HTMLElement {
   <div class="sec"><div class="seclbl">Grenzwerte</div>
     ${this._row('um-temp', 'Max Temperatur', 15, 40, .5, u.maxTemp, v => v + '°C')}
     ${this._row('um-hum', 'Max Luftfeuchte', 30, 100, 1, u.maxHum, v => v + '%')}
+    ${this._row('um-hyst', 'Hysterese', 0.5, 5, 0.5, u.hysteresis, v => v + '°C/%')}
   </div>
   <div class="sec"><div class="seclbl">Geschwindigkeit</div>
     ${this._row('um-spd', 'Lüfter aktiv', MIN, 100, 1, u.speed, v => v + '%')}
@@ -719,6 +723,7 @@ class BlowerControlCard extends HTMLElement {
       }, sig));
       this._orange(r, '#um-temp', v => s.umwelt.maxTemp = v, v => v + '°C', sig);
       this._orange(r, '#um-hum', v => s.umwelt.maxHum = v, v => v + '%', sig);
+      this._orange(r, '#um-hyst', v => s.umwelt.hysteresis = v, v => v + '°C/%', sig);
       this._orange(r, '#um-spd', v => s.umwelt.speed = v, v => v + '%', sig);
       this._orange(r, '#um-stby', v => s.umwelt.standby = v, this._fs.bind(this), sig);
     }
@@ -1558,6 +1563,7 @@ class BlowerControlCard extends HTMLElement {
   <div class="sec"><div class="seclbl">Umwelt-Schwellen</div>
     ${this._row('cf-temp', 'Max Temperatur', 15, 40, .5, u.maxTemp, v => v + '°C')}
     ${this._row('cf-hum', 'Max Luftfeuchte', 30, 100, 1, u.maxHum, v => v + '%')}
+    ${this._row('cf-hyst', 'Hysterese', 0.5, 5, 0.5, u.hysteresis, v => v + '°C/%')}
   </div>
   <div class="sec"><div class="seclbl">Geschwindigkeit</div>
     ${this._row('cf-uspd', 'Lüfter aktiv', 10, 100, 10, u.speed, v => v + '%')}
@@ -1653,6 +1659,7 @@ class BlowerControlCard extends HTMLElement {
         }, sig));
       this._orange(r, '#cf-temp', v => cs.umwelt.maxTemp = v, v => v + '°C', sig);
       this._orange(r, '#cf-hum', v => cs.umwelt.maxHum = v, v => v + '%', sig);
+      this._orange(r, '#cf-hyst', v => cs.umwelt.hysteresis = v, v => v + '°C/%', sig);
       this._orange(r, '#cf-uspd', v => cs.umwelt.speed = v, v => v + '%', sig);
       this._orange(r, '#cf-ustby', v => cs.umwelt.standby = v, this._cfs.bind(this), sig);
     }
