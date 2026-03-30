@@ -302,7 +302,7 @@ class BlowerControlCard extends HTMLElement {
         start: '08:00', runtime: 15, pause: 45, repetitions: 4, speed: 80, standby: 25,
         _state: { phase: 'waiting', count: 0, since: null }
       },
-      umwelt: { mode: 'both', maxTemp: 28, maxHum: 70, speed: 100, standby: 25, hysteresis: 1.0 },
+      umwelt: { mode: 'both', useTemp: true, useHum: false, useVpd: false, maxTemp: 28, maxHum: 70, maxVpd: 1.2, speed: 100, standby: 25, hysteresis: 1.0 },
       light: {
         mode: 'off',
         brightness: 100,
@@ -316,7 +316,7 @@ class BlowerControlCard extends HTMLElement {
           start: '08:00', runtime: 15, pause: 45, repetitions: 4, speed: 80, standby: 0,
           _state: { phase: 'waiting', count: 0, since: null }
         },
-        umwelt: { mode: 'both', maxTemp: 28, maxHum: 70, speed: 100, standby: 0, hysteresis: 1.0 }
+        umwelt: { mode: 'both', useTemp: true, useHum: false, useVpd: false, maxTemp: 28, maxHum: 70, maxVpd: 1.2, speed: 100, standby: 0, hysteresis: 1.0 }
       }
     };
   }
@@ -330,6 +330,16 @@ class BlowerControlCard extends HTMLElement {
     if (m === 'temp_prio' || m === 'hum_prio') {
       this._settings.umwelt.mode = 'both';
     }
+    // Migrate old umwelt.mode → useTemp/useHum
+    const migrateUmwelt = (u) => {
+      if (u && u.mode !== undefined && u.useTemp === undefined) {
+        u.useTemp = u.mode !== 'only_hum';
+        u.useHum  = u.mode !== 'only_temp';
+        delete u.mode;
+      }
+    };
+    migrateUmwelt(this._settings.umwelt);
+    migrateUmwelt(this._settings.circ?.umwelt);
     // Ensure circ speed is always snapped to 10
     if (this._settings.circ?.manual?.speed != null) {
       this._settings.circ.manual.speed = snap10(clamp(Math.round(this._settings.circ.manual.speed), 10, 100));
@@ -620,9 +630,6 @@ class BlowerControlCard extends HTMLElement {
 
   _tUmwelt() {
     const u = this._settings.umwelt;
-    const M = [
-      ['both', 'Temp & Feuchte'], ['only_temp', 'Nur Temp'], ['only_hum', 'Nur Feuchte']
-    ];
     const isAct = this._settings.activeMode === 'umwelt';
     let statusHtml = '';
     if (isAct) {
@@ -632,12 +639,15 @@ class BlowerControlCard extends HTMLElement {
     }
     return `<div class="swrap">
   ${statusHtml}
-  <div class="sec"><div class="seclbl">Betriebsmodus</div>
-    <div class="mgrid">${M.map(([v, l]) => `<button class="mbtn${u.mode === v ? ' a' : ''}" data-mode="${v}">${l}</button>`).join('')}</div>
+  <div class="sec"><div class="seclbl">Auslöser</div>
+    <label class="chk-row"><input type="checkbox" id="um-useTemp" ${u.useTemp ? 'checked' : ''}> Temperatur</label>
+    <label class="chk-row"><input type="checkbox" id="um-useHum" ${u.useHum ? 'checked' : ''}> Luftfeuchte</label>
+    <label class="chk-row"><input type="checkbox" id="um-useVpd" ${u.useVpd ? 'checked' : ''}> VPD</label>
   </div>
   <div class="sec"><div class="seclbl">Grenzwerte</div>
-    ${this._row('um-temp', 'Max Temperatur', 15, 40, .5, u.maxTemp, v => v + '°C')}
-    ${this._row('um-hum', 'Max Luftfeuchte', 30, 100, 1, u.maxHum, v => v + '%')}
+    ${u.useTemp ? this._row('um-temp', 'Max Temperatur', 15, 40, .5, u.maxTemp, v => v + '°C') : ''}
+    ${u.useHum  ? this._row('um-hum', 'Max Luftfeuchte', 30, 100, 1, u.maxHum, v => v + '%') : ''}
+    ${u.useVpd  ? this._row('um-vpd', 'Max VPD', 0.5, 2.5, 0.1, u.maxVpd, v => v.toFixed(1) + ' kPa') : ''}
     ${this._row('um-hyst', 'Hysterese', 0.5, 5, 0.5, u.hysteresis, v => v + '°C/%')}
   </div>
   <div class="sec"><div class="seclbl">Geschwindigkeit</div>
@@ -648,13 +658,8 @@ class BlowerControlCard extends HTMLElement {
 </div>`;
   }
 
-  _shouldRun(u, tO, hO) {
-    switch (u.mode) {
-      case 'both': return tO || hO;
-      case 'only_temp': return tO;
-      case 'only_hum':  return hO;
-    }
-    return false;
+  _shouldRun(u, tO, hO, vO = false) {
+    return (u.useTemp && tO) || (u.useHum && hO) || (u.useVpd && vO);
   }
 
   /* ── Event binding (with AbortController cleanup) ────────────────────── */
@@ -716,13 +721,20 @@ class BlowerControlCard extends HTMLElement {
     }
 
     if (t === 'umwelt') {
-      r.querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => {
-        s.umwelt.mode = b.dataset.mode;
-        r.querySelectorAll('[data-mode]').forEach(x => x.classList.toggle('a', x === b));
-        this._save();
-      }, sig));
+      const rerender = () => {
+        this.shadowRoot.querySelector('#body').innerHTML = this._renderTab('umwelt');
+        this._bindTab();
+      };
+      const cb = (id, key) => {
+        const el = r.querySelector(`#${id}`);
+        if (el) el.addEventListener('change', () => { s.umwelt[key] = el.checked; this._save(); rerender(); }, sig);
+      };
+      cb('um-useTemp', 'useTemp');
+      cb('um-useHum', 'useHum');
+      cb('um-useVpd', 'useVpd');
       this._orange(r, '#um-temp', v => s.umwelt.maxTemp = v, v => v + '°C', sig);
       this._orange(r, '#um-hum', v => s.umwelt.maxHum = v, v => v + '%', sig);
+      this._orange(r, '#um-vpd', v => s.umwelt.maxVpd = v, v => v.toFixed(1) + ' kPa', sig);
       this._orange(r, '#um-hyst', v => s.umwelt.hysteresis = v, v => v + '°C/%', sig);
       this._orange(r, '#um-spd', v => s.umwelt.speed = v, v => v + '%', sig);
       this._orange(r, '#um-stby', v => s.umwelt.standby = v, this._fs.bind(this), sig);
@@ -928,11 +940,18 @@ class BlowerControlCard extends HTMLElement {
     if (!ui || !this._hass) return;
     const u = this._settings.umwelt;
     const ts = this._hass.states[this._tempE], hs = this._hass.states[this._humE];
-    const temp = parseFloat(ts?.state), hum = parseFloat(hs?.state);
-    const tO = !isNaN(temp) && temp > u.maxTemp, hO = !isNaN(hum) && hum > u.maxHum;
-    const triggered = this._shouldRun(u, tO, hO);
+    const vs = this._vpdE ? this._hass.states[this._vpdE] : null;
+    const temp = parseFloat(ts?.state), hum = parseFloat(hs?.state), vpd = parseFloat(vs?.state);
+    const tO = u.useTemp && !isNaN(temp) && temp > u.maxTemp;
+    const hO = u.useHum  && !isNaN(hum)  && hum  > u.maxHum;
+    const vO = u.useVpd  && !isNaN(vpd)  && vpd  > u.maxVpd;
+    const triggered = this._umweltActive;
     ui.className = `info-card ${triggered ? 'running' : 'standby'}`;
-    r.querySelector('#umwelt-text').innerHTML = `${triggered ? `Lüfter aktiv · ${u.speed}%` : `Standby · ${this._fs(u.standby)}`}${tO ? ' <span class="warn-tag">⬆ Temp</span>' : ''}${hO ? ' <span class="warn-tag">⬆ Feuchte</span>' : ''}`;
+    r.querySelector('#umwelt-text').innerHTML =
+      `${triggered ? `Lüfter aktiv · ${u.speed}%` : `Standby · ${this._fs(u.standby)}`}` +
+      `${tO ? ' <span class="warn-tag">⬆ Temp</span>' : ''}` +
+      `${hO ? ' <span class="warn-tag">⬆ Feuchte</span>' : ''}` +
+      `${vO ? ' <span class="warn-tag">⬆ VPD</span>' : ''}`;
   }
 
   /* ── Humidifier ───────────────────────────────────────────────────────── */
@@ -1560,21 +1579,20 @@ class BlowerControlCard extends HTMLElement {
     }
     return `<div class="swrap">
   ${statusHtml}
-  <div class="sec"><div class="seclbl">Umwelt-Schwellen</div>
-    ${this._row('cf-temp', 'Max Temperatur', 15, 40, .5, u.maxTemp, v => v + '°C')}
-    ${this._row('cf-hum', 'Max Luftfeuchte', 30, 100, 1, u.maxHum, v => v + '%')}
+  <div class="sec"><div class="seclbl">Auslöser</div>
+    <label class="chk-row"><input type="checkbox" id="cf-useTemp" ${u.useTemp ? 'checked' : ''}> Temperatur</label>
+    <label class="chk-row"><input type="checkbox" id="cf-useHum" ${u.useHum ? 'checked' : ''}> Luftfeuchte</label>
+    <label class="chk-row"><input type="checkbox" id="cf-useVpd" ${u.useVpd ? 'checked' : ''}> VPD</label>
+  </div>
+  <div class="sec"><div class="seclbl">Grenzwerte</div>
+    ${u.useTemp ? this._row('cf-temp', 'Max Temperatur', 15, 40, .5, u.maxTemp, v => v + '°C') : ''}
+    ${u.useHum  ? this._row('cf-hum', 'Max Luftfeuchte', 30, 100, 1, u.maxHum, v => v + '%') : ''}
+    ${u.useVpd  ? this._row('cf-vpd', 'Max VPD', 0.5, 2.5, 0.1, u.maxVpd, v => v.toFixed(1) + ' kPa') : ''}
     ${this._row('cf-hyst', 'Hysterese', 0.5, 5, 0.5, u.hysteresis, v => v + '°C/%')}
   </div>
   <div class="sec"><div class="seclbl">Geschwindigkeit</div>
     ${this._row('cf-uspd', 'Lüfter aktiv', 10, 100, 10, u.speed, v => v + '%')}
     ${this._row('cf-ustby', 'Standby', 0, 100, 10, u.standby, this._cfs.bind(this))}
-  </div>
-  <div class="sec"><div class="seclbl">Modus</div>
-    <div class="mgrid">
-      <button class="mbtn${u.mode === 'both' ? ' a' : ''}" data-cenv="both">Beide</button>
-      <button class="mbtn${u.mode === 'only_temp' ? ' a' : ''}" data-cenv="only_temp">Nur Temp</button>
-      <button class="mbtn${u.mode === 'only_hum' ? ' a' : ''}" data-cenv="only_hum">Nur Feuchte</button>
-    </div>
   </div>
   <div class="abtn-row">
     <button class="abtn${isAct ? ' a' : ''}" data-cact="umwelt">${isAct ? '✓ Aktiv' : 'Aktivieren'}</button>
@@ -1652,13 +1670,20 @@ class BlowerControlCard extends HTMLElement {
     }
 
     if (t === 'umwelt') {
-      r.querySelectorAll('[data-cenv]').forEach(b =>
-        b.addEventListener('click', () => {
-          cs.umwelt.mode = b.dataset.cenv; this._save();
-          r.querySelectorAll('[data-cenv]').forEach(x => x.classList.toggle('act', x.dataset.cenv === b.dataset.cenv));
-        }, sig));
+      const rerender = () => {
+        r.querySelector('#circ-body').innerHTML = this._renderCircTab('umwelt');
+        this._bindCircTab();
+      };
+      const cb = (id, key) => {
+        const el = r.querySelector(`#${id}`);
+        if (el) el.addEventListener('change', () => { cs.umwelt[key] = el.checked; this._save(); rerender(); }, sig);
+      };
+      cb('cf-useTemp', 'useTemp');
+      cb('cf-useHum', 'useHum');
+      cb('cf-useVpd', 'useVpd');
       this._orange(r, '#cf-temp', v => cs.umwelt.maxTemp = v, v => v + '°C', sig);
       this._orange(r, '#cf-hum', v => cs.umwelt.maxHum = v, v => v + '%', sig);
+      this._orange(r, '#cf-vpd', v => cs.umwelt.maxVpd = v, v => v.toFixed(1) + ' kPa', sig);
       this._orange(r, '#cf-hyst', v => cs.umwelt.hysteresis = v, v => v + '°C/%', sig);
       this._orange(r, '#cf-uspd', v => cs.umwelt.speed = v, v => v + '%', sig);
       this._orange(r, '#cf-ustby', v => cs.umwelt.standby = v, this._cfs.bind(this), sig);
@@ -1907,19 +1932,21 @@ class BlowerControlCard extends HTMLElement {
 
   _evCircU() {
     const u = this._settings.circ.umwelt;
-    const tempSt = this._hass.states[this._tempE];
-    const humSt = this._hass.states[this._humE];
-    const temp = tempSt ? parseFloat(tempSt.state) : null;
-    const hum = humSt ? parseFloat(humSt.state) : null;
-    const tO = temp !== null && !isNaN(temp) && temp > u.maxTemp;
-    const hO = hum !== null && !isNaN(hum) && hum > u.maxHum;
-    let run = false;
-    switch (u.mode) {
-      case 'both': run = tO || hO; break;
-      case 'only_temp': run = tO; break;
-      case 'only_hum': run = hO; break;
-    }
-    this._setCircFan(run ? u.speed : u.standby, 'evCircU');
+    const ts = this._hass.states[this._tempE];
+    const hs = this._hass.states[this._humE];
+    const vs = this._vpdE ? this._hass.states[this._vpdE] : null;
+    const t = ts ? parseFloat(ts.state) : null;
+    const h = hs ? parseFloat(hs.state) : null;
+    const v = vs ? parseFloat(vs.state) : null;
+    const tOver = u.useTemp && t !== null && !isNaN(t) && t > u.maxTemp;
+    const hOver = u.useHum  && h !== null && !isNaN(h) && h > u.maxHum;
+    const vOver = u.useVpd  && v !== null && !isNaN(v) && v > u.maxVpd;
+    const tUnder = !u.useTemp || t === null || isNaN(t) || t < u.maxTemp - u.hysteresis;
+    const hUnder = !u.useHum  || h === null || isNaN(h) || h < u.maxHum - u.hysteresis;
+    const vUnder = !u.useVpd  || v === null || isNaN(v) || v < u.maxVpd - u.hysteresis;
+    if (tOver || hOver || vOver) this._circUmweltActive = true;
+    if (tUnder && hUnder && vUnder) this._circUmweltActive = false;
+    this._setCircFan(this._circUmweltActive ? u.speed : u.standby, 'evCircU');
   }
 
   _updateCircModeStatus() {
@@ -1967,21 +1994,20 @@ class BlowerControlCard extends HTMLElement {
     if (!ui) return;
     const u = this._settings.circ.umwelt;
     const tempSt = this._hass?.states[this._tempE];
-    const humSt = this._hass?.states[this._humE];
+    const humSt  = this._hass?.states[this._humE];
+    const vpdSt  = this._vpdE ? this._hass?.states[this._vpdE] : null;
     const temp = tempSt ? parseFloat(tempSt.state) : null;
-    const hum = humSt ? parseFloat(humSt.state) : null;
-    const tO = temp !== null && !isNaN(temp) && temp > u.maxTemp;
-    const hO = hum !== null && !isNaN(hum) && hum > u.maxHum;
-    let run = false;
-    switch (u.mode) {
-      case 'both': run = tO || hO; break;
-      case 'only_temp': run = tO; break;
-      case 'only_hum': run = hO; break;
-    }
+    const hum  = humSt  ? parseFloat(humSt.state)  : null;
+    const vpd  = vpdSt  ? parseFloat(vpdSt.state)  : null;
+    const tO = u.useTemp && temp !== null && !isNaN(temp) && temp > u.maxTemp;
+    const hO = u.useHum  && hum  !== null && !isNaN(hum)  && hum  > u.maxHum;
+    const vO = u.useVpd  && vpd  !== null && !isNaN(vpd)  && vpd  > u.maxVpd;
+    const run = this._circUmweltActive;
     ui.className = `info-card ${run ? 'running' : 'standby'}`;
     const parts = [];
     if (temp !== null) parts.push(`${temp.toFixed(1)}°C${tO ? ' ⚠' : ''}`);
-    if (hum !== null) parts.push(`${Math.round(hum)}%${hO ? ' ⚠' : ''}`);
+    if (hum  !== null) parts.push(`${Math.round(hum)}%${hO ? ' ⚠' : ''}`);
+    if (vpd  !== null && u.useVpd) parts.push(`${vpd.toFixed(2)} kPa${vO ? ' ⚠' : ''}`);
     r.querySelector('#circ-umwelt-text').textContent = run
       ? `Aktiv · ${u.speed}% · ${parts.join(' · ')}`
       : `Standby · ${this._cfs(u.standby)} · ${parts.join(' · ')}`;
@@ -2172,12 +2198,21 @@ class BlowerControlCard extends HTMLElement {
 
   _evU() {
     const u = this._settings.umwelt;
-    const ts = this._hass.states[this._tempE], hs = this._hass.states[this._humE];
+    const ts = this._hass.states[this._tempE];
+    const hs = this._hass.states[this._humE];
+    const vs = this._vpdE ? this._hass.states[this._vpdE] : null;
     const t = ts ? parseFloat(ts.state) : null;
     const h = hs ? parseFloat(hs.state) : null;
-    const tO = t !== null && !isNaN(t) && t > u.maxTemp;
-    const hO = h !== null && !isNaN(h) && h > u.maxHum;
-    this._setFan(this._shouldRun(u, tO, hO) ? u.speed : u.standby, 'evU');
+    const v = vs ? parseFloat(vs.state) : null;
+    const tOver = u.useTemp && t !== null && !isNaN(t) && t > u.maxTemp;
+    const hOver = u.useHum  && h !== null && !isNaN(h) && h > u.maxHum;
+    const vOver = u.useVpd  && v !== null && !isNaN(v) && v > u.maxVpd;
+    const tUnder = !u.useTemp || t === null || isNaN(t) || t < u.maxTemp - u.hysteresis;
+    const hUnder = !u.useHum  || h === null || isNaN(h) || h < u.maxHum - u.hysteresis;
+    const vUnder = !u.useVpd  || v === null || isNaN(v) || v < u.maxVpd - u.hysteresis;
+    if (tOver || hOver || vOver) this._umweltActive = true;
+    if (tUnder && hUnder && vUnder) this._umweltActive = false;
+    this._setFan(this._umweltActive ? u.speed : u.standby, 'evU');
   }
 
   /* ── Fan dispatch ────────────────────────────────────────────────────── */
@@ -2297,6 +2332,8 @@ ha-card{overflow:hidden;border-radius:16px}
 .tab:hover{color:var(--primary-text-color)}
 .tab.act{background:var(--card-background-color,#1c1c1e);color:var(--primary-text-color);font-weight:700;box-shadow:0 2px 10px rgba(0,0,0,.4)}
 .rdot{position:absolute;top:4px;right:4px;width:5px;height:5px;border-radius:50%;background:#4caf50;box-shadow:0 0 5px #4caf50}
+.chk-row{display:flex;align-items:center;gap:8px;padding:4px 0;font-size:.9em;cursor:pointer}
+.chk-row input{width:16px;height:16px;cursor:pointer}
 
 /* ── Manual ── */
 .mwrap{display:flex;flex-direction:column;align-items:center;gap:14px;padding:4px 0}
