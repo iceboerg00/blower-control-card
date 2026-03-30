@@ -320,6 +320,10 @@ class BlowerControlCard extends HTMLElement {
     if (m === 'temp_prio' || m === 'hum_prio') {
       this._settings.umwelt.mode = 'both';
     }
+    // Ensure circ speed is always snapped to 10
+    if (this._settings.circ?.manual?.speed != null) {
+      this._settings.circ.manual.speed = snap10(clamp(Math.round(this._settings.circ.manual.speed), 10, 100));
+    }
   }
   _save() {
     clearTimeout(this._saveTimer);
@@ -1850,7 +1854,7 @@ class BlowerControlCard extends HTMLElement {
     const max = z.repetitions === 0 ? Infinity : z.repetitions;
 
     if (st.phase === 'waiting') {
-      if (n >= sm && n < sm + 2) {
+      if ((n - sm + 1440) % 1440 < 2) {
         this._cycleTransition(st, 'run', 0);
         this._setCircFan(z.speed, 'evCircC-start');
       } else {
@@ -2106,8 +2110,8 @@ class BlowerControlCard extends HTMLElement {
     const max = z.repetitions === 0 ? Infinity : z.repetitions;
 
     if (st.phase === 'waiting') {
-      // Check if we're within a 2-minute start window
-      if (n >= sm && n < sm + 2) {
+      // Check if we're within a 2-minute start window (modulo handles 23:59 edge case)
+      if ((n - sm + 1440) % 1440 < 2) {
         this._cycleTransition(st, 'run', 0);
         this._setFan(z.speed, 'evC-start');
       } else {
