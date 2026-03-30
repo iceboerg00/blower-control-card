@@ -203,6 +203,7 @@ class BlowerControlCard extends HTMLElement {
     this._updateSensors();
     this._updateStatus();
     this._updateModeStatus();
+    this._updateGuardSpinners();
   }
 
   /* ── Sync dial with HA state ─────────────────────────────────────────── */
@@ -548,6 +549,7 @@ class BlowerControlCard extends HTMLElement {
       <circle class="thumb" id="thumb" cx="${th.x.toFixed(2)}" cy="${th.y.toFixed(2)}" r="13"/>
       <text class="pnum" id="pnum" x="${CX}" y="${CY + 2}">${m.speed}</text>
       <text class="punit" x="${CX}" y="${CY + 22}">%</text>
+      <circle class="dial-spinner" id="dial-spinner" cx="110" cy="110" r="18" fill="none" stroke="#03a9f4" stroke-width="3" stroke-dasharray="36 77" stroke-linecap="round"/>
     </svg>
     <div class="tick-label l">25</div>
     <div class="tick-label r">100</div>
@@ -995,6 +997,7 @@ class BlowerControlCard extends HTMLElement {
       <text class="hum-lbl-title" id="hum-title" x="${CX}" y="${CY - 20}">Befeuchtung</text>
       <text class="pnum" id="hum-pnum" x="${CX}" y="${CY + 10}">${this._humTarget}</text>
       <text class="punit" x="${CX}" y="${CY + 28}">%</text>
+      <circle class="dial-spinner" id="hum-dial-spinner" cx="110" cy="110" r="18" fill="none" stroke="#03a9f4" stroke-width="3" stroke-dasharray="36 77" stroke-linecap="round"/>
     </svg>
     <div class="tick-label l">${HM}</div>
     <div class="tick-label r">${HX}</div>
@@ -1177,6 +1180,7 @@ class BlowerControlCard extends HTMLElement {
       <circle class="thumb light-thumb" id="light-thumb" cx="${th.x.toFixed(2)}" cy="${th.y.toFixed(2)}" r="13"/>
       <text class="pnum" id="light-pnum" x="${CX}" y="${CY + 2}">${bri}</text>
       <text class="punit" x="${CX}" y="${CY + 22}">%</text>
+      <circle class="dial-spinner" id="light-dial-spinner" cx="110" cy="110" r="18" fill="none" stroke="#ffb300" stroke-width="3" stroke-dasharray="36 77" stroke-linecap="round"/>
     </svg>
     <div class="tick-label l">11</div>
     <div class="tick-label r">100</div>
@@ -1507,6 +1511,7 @@ class BlowerControlCard extends HTMLElement {
       <circle class="thumb circ-thumb" id="circ-thumb" cx="${th.x.toFixed(2)}" cy="${th.y.toFixed(2)}" r="13"/>
       <text class="pnum" id="circ-pnum" x="${CX}" y="${CY + 2}">${m.speed}</text>
       <text class="punit" x="${CX}" y="${CY + 22}">%</text>
+      <circle class="dial-spinner" id="circ-dial-spinner" cx="110" cy="110" r="18" fill="none" stroke="#4caf50" stroke-width="3" stroke-dasharray="36 77" stroke-linecap="round"/>
     </svg>
     <div class="tick-label l">0</div>
     <div class="tick-label r">100</div>
@@ -2291,6 +2296,18 @@ class BlowerControlCard extends HTMLElement {
     if (pct && !this._isDragging) pct.textContent = (on && st.attributes.percentage != null) ? ` ${Math.round(st.attributes.percentage)}%` : '';
   }
 
+  _updateGuardSpinners() {
+    const r = this.shadowRoot;
+    const now = Date.now();
+    const show = (id, active) => {
+      const el = r.querySelector(`#${id}`);
+      if (el) el.classList.toggle('vis', active);
+    };
+    show('dial-spinner',       now < this._cmdGuardUntil);
+    show('circ-dial-spinner',  now < this._circCmdGuard);
+    show('light-dial-spinner', now < this._lightCmdGuard);
+  }
+
   /* ── CSS (identical design) ──────────────────────────────────────────── */
   _css() { return `
 :host{display:block}
@@ -2345,6 +2362,9 @@ ha-card{overflow:hidden;border-radius:16px}
 .tab:hover{color:var(--primary-text-color)}
 .tab.act{background:var(--card-background-color,#1c1c1e);color:var(--primary-text-color);font-weight:700;box-shadow:0 2px 10px rgba(0,0,0,.4)}
 .rdot{position:absolute;top:4px;right:4px;width:5px;height:5px;border-radius:50%;background:#4caf50;box-shadow:0 0 5px #4caf50}
+@keyframes bcc-spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+.dial-spinner{transform-origin:110px 110px;animation:bcc-spin 0.8s linear infinite;display:none}
+.dial-spinner.vis{display:block}
 .chk-row{display:flex;align-items:center;gap:8px;padding:4px 0;font-size:.9em;cursor:pointer}
 .chk-row input{width:16px;height:16px;cursor:pointer}
 
