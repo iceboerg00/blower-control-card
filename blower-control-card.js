@@ -142,7 +142,14 @@ class BlowerControlCard extends HTMLElement {
   set hass(h) {
     this._hass = h;
     if (!this._config) return;
-    if (!this._rendered) { this._loadSettings(); this._render(); }
+    if (!this._rendered) {
+      this._loadSettings();
+      // Pre-sync humidifier target so first render shows correct value
+      const humSt = h.states[this._humidifier];
+      const target = humSt?.attributes?.humidity;
+      if (target != null) this._humTarget = Math.round(target);
+      this._render();
+    }
 
     // When card is disabled, only update sensors display — no commands
     if (this._settings?.cardDisabled) {
