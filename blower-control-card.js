@@ -1,6 +1,6 @@
 // blower-control-card.js v15
 // type: custom:blower-control-card
-const BCC_VERSION = 'v59';
+const BCC_VERSION = 'v60';
 const BCC_DEBUG = false; // set true to enable verbose console logging
 console.log(`%c[BCC] ${BCC_VERSION} loaded`, 'color:#03a9f4;font-weight:bold');
 
@@ -127,7 +127,6 @@ class BlowerControlCard extends HTMLElement {
     this._light = saved.light || c.light || 'light.schedule_4_real_cb_light_1';
     this._circFan = saved.circFan || c.circ_fan || 'fan.schedule_4_real_cb_fan';
     this._moduleOrder = saved.moduleOrder || c.module_order || ['blower', 'humidifier', 'light', 'circ'];
-    this._settingsEntity = c.settings_entity || 'input_text.bcc_settings';
     this._key = `bcc__${this._fan}`;
     try {
       const old = localStorage.getItem(`bcc3__${this._fan}`);
@@ -148,12 +147,13 @@ class BlowerControlCard extends HTMLElement {
     if (!this._config) return;
     if (!this._rendered) {
       this._loadSettings();
-      this._loadSettingsFromHA(); // overwrite with HA data if entity exists
       // Pre-sync humidifier target so first render shows correct value
       const humSt = h.states[this._humidifier];
       const target = humSt?.attributes?.humidity;
       if (target != null) this._humTarget = Math.round(target);
       this._render();
+      // Async: load from HA user-data store and re-render tabs if data differs
+      this._loadSettingsFromHA();
     }
 
     // When card is disabled, only update sensors display — no commands
@@ -355,63 +355,45 @@ class BlowerControlCard extends HTMLElement {
       this._settings.circ.manual.speed = snap10(clamp(Math.round(this._settings.circ.manual.speed), 10, 100));
     }
   }
-  // Compute diff of current vs defaults — only changed fields, skip _state
-  // and autoOffUntil (ephemeral timestamps). Result is always << 255 chars.
-  _diffObj(defs, cur) {
-    if (typeof cur !== 'object' || cur === null) return cur !== defs ? cur : undefined;
-    const out = {};
-    for (const k in cur) {
-      if (k === '_state' || k === 'autoOffUntil') continue;
-      const cv = cur[k], dv = (defs || {})[k];
-      if (cv === null || cv === undefined) continue;
-      if (typeof cv === 'object' && !Array.isArray(cv)) {
-        const sub = this._diffObj(dv, cv);
-        if (sub !== undefined && Object.keys(sub).length) out[k] = sub;
-      } else if (cv !== dv) {
-        out[k] = cv;
+  // Load settings from HA frontend user-data store (cross-device sync).
+  // Uses the built-in frontend/get_user_data WebSocket command — no helpers needed,
+  // no size limit. Called once after hass is first available; HA data wins.
+  async _loadSettingsFromHA() {
+    if (!this._hass) return;
+    try {
+      const res = await this._hass.callWS({ type: 'frontend/get_user_data', key: 'bcc_settings' });
+      if (!res?.value || typeof res.value !== 'object') return;
+      this._settings = this._applyMigrations(res.value);
+      this._snapCircSpeed();
+      try { localStorage.setItem(this._key, JSON.stringify(this._settings)); } catch {}
+      // Re-render tabs to reflect HA settings
+      if (this._rendered) {
+        this.shadowRoot.querySelector('#body').innerHTML = this._renderTab(this._tab);
+        this._bindTab();
+        this.shadowRoot.querySelector('#light-body').innerHTML = this._renderLightTab(this._lightTab);
+        this._bindLightTab();
+        this.shadowRoot.querySelector('#circ-body').innerHTML = this._renderCircTab(this._circTab);
+        this._bindCircTab();
+        this._updateSensors();
+        this._updateStatus();
+        this._updateModeStatus();
+        this._updateCircModeStatus();
+        this._updateLightStatus();
       }
-    }
-    return Object.keys(out).length ? out : undefined;
-  }
-  // Load settings from HA input_text entities (cross-device sync).
-  // Called once after hass is first available; HA data wins over localStorage.
-  _loadSettingsFromHA() {
-    if (!this._hass || !this._settingsEntity) return;
-    const eA = this._settingsEntity;
-    const eB = this._settingsEntity + '_circ';
-    const stA = this._hass.states[eA];
-    const stB = this._hass.states[eB];
-    if (!stA) return; // entity not set up — skip HA sync
-    let blower = null, circ = null;
-    try { if (stA.state?.length > 2) blower = JSON.parse(stA.state); } catch {}
-    try { if (stB?.state?.length > 2) circ = JSON.parse(stB.state); } catch {}
-    if (!blower && !circ) return;
-    // Reconstruct full saved object from the two diffs and merge with defaults
-    const raw = blower ? { ...blower } : {};
-    if (circ) raw.circ = circ;
-    this._settings = this._applyMigrations(raw);
-    this._snapCircSpeed();
-    try { localStorage.setItem(this._key, JSON.stringify(this._settings)); } catch {}
+    } catch {}
   }
   _save() {
     clearTimeout(this._saveTimer);
     this._saveTimer = setTimeout(() => {
       const json = JSON.stringify(this._settings);
       try { localStorage.setItem(this._key, json); } catch {}
-      // Sync diffs to HA input_text (two entities, each < 255 chars)
-      if (this._hass && this._settingsEntity) {
-        const defs = this._def();
-        const full = this._diffObj(defs, this._settings) || {};
-        const circDiff = full.circ;
-        delete full.circ;
-        const eA = this._settingsEntity;
-        const eB = this._settingsEntity + '_circ';
-        const jA = JSON.stringify(full);
-        const jB = JSON.stringify(circDiff || {});
-        if (this._hass.states[eA] && jA.length <= 255)
-          this._hass.callService('input_text', 'set_value', { entity_id: eA, value: jA });
-        if (this._hass.states[eB] && jB.length <= 255)
-          this._hass.callService('input_text', 'set_value', { entity_id: eB, value: jB });
+      // Sync to HA frontend user-data (per-user, no size limit, no helpers needed)
+      if (this._hass) {
+        this._hass.callWS({
+          type: 'frontend/set_user_data',
+          key: 'bcc_settings',
+          value: this._settings
+        }).catch(() => {});
       }
     }, 150);
   }
