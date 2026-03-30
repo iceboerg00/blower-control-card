@@ -2103,6 +2103,18 @@ class BlowerControlCard extends HTMLElement {
     const info = r.querySelector('#light-sched-info');
     const text = r.querySelector('#light-sched-text');
     if (!info || !text) return;
+    // Show ramp-interrupted warning regardless of phase
+    if (!this._lightRampOk) {
+      info.className = 'info-card standby';
+      text.innerHTML = `Rampe unterbrochen &nbsp;<button id="ramp-reset-btn" style="font-size:.8em;padding:2px 8px;cursor:pointer;border-radius:4px;border:1px solid #ffb300;background:transparent;color:#ffb300">Zurücksetzen</button>`;
+      const btn = r.querySelector('#ramp-reset-btn');
+      if (btn) btn.addEventListener('click', () => {
+        this._lightRampOk = true;
+        this._evalLight();
+        this._updateLightStatus();
+      });
+      return;
+    }
     if (phase === 'sunrise') {
       info.className = 'info-card running';
       text.textContent = `Sonnenaufgang · ${pct > 0 ? Math.max(11, pct) : 0}%`;
