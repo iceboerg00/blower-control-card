@@ -930,7 +930,7 @@ class BlowerControlCard extends HTMLElement {
     } else {
       const rem = Math.max(0, z.pause * 60000 - (Date.now() - st.since));
       ci.className = 'info-card standby';
-      r.querySelector('#cycle-text').innerHTML = `Pause · Zyklus ${st.count}/${max} · weiter in ${fmtMin(rem)}`;
+      r.querySelector('#cycle-text').innerHTML = `Pause · ${st.count}/${max} · weiter in ${fmtMin(rem)}`;
     }
   }
 
@@ -1974,14 +1974,15 @@ class BlowerControlCard extends HTMLElement {
     const ci = r.querySelector('#circ-cycle-info');
     if (!ci) return;
     const z = this._settings.circ.zyklus, st = z._state;
+    const max = z.repetitions === 0 ? '∞' : z.repetitions;
     if (st.phase === 'run') {
       ci.className = 'info-card running';
       const left = Math.max(0, z.runtime * 60000 - (Date.now() - st.since));
-      r.querySelector('#circ-cycle-text').textContent = `Läuft · ${z.speed}% · ${fmtMin(left)} übrig`;
+      r.querySelector('#circ-cycle-text').textContent = `Läuft · ${st.count + 1}/${max} · ${fmtMin(left)} übrig`;
     } else if (st.phase === 'pause') {
       ci.className = 'info-card standby';
       const left = Math.max(0, z.pause * 60000 - (Date.now() - st.since));
-      r.querySelector('#circ-cycle-text').textContent = `Pause · ${this._cfs(z.standby)} · ${fmtMin(left)} übrig`;
+      r.querySelector('#circ-cycle-text').textContent = `Pause · ${st.count}/${max} · weiter in ${fmtMin(left)}`;
     } else {
       ci.className = 'info-card standby';
       r.querySelector('#circ-cycle-text').textContent = `Wartet auf ${z.start}`;
