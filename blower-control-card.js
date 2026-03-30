@@ -1,6 +1,6 @@
 // blower-control-card.js v15
 // type: custom:blower-control-card
-const BCC_VERSION = 'v57';
+const BCC_VERSION = 'v58';
 const BCC_DEBUG = false; // set true to enable verbose console logging
 console.log(`%c[BCC] ${BCC_VERSION} loaded`, 'color:#03a9f4;font-weight:bold');
 
@@ -127,6 +127,7 @@ class BlowerControlCard extends HTMLElement {
     this._light = saved.light || c.light || 'light.schedule_4_real_cb_light_1';
     this._circFan = saved.circFan || c.circ_fan || 'fan.schedule_4_real_cb_fan';
     this._moduleOrder = saved.moduleOrder || c.module_order || ['blower', 'humidifier', 'light', 'circ'];
+    this._settingsEntity = c.settings_entity || 'input_text.bcc_settings';
     this._key = `bcc__${this._fan}`;
     try {
       const old = localStorage.getItem(`bcc3__${this._fan}`);
@@ -147,6 +148,7 @@ class BlowerControlCard extends HTMLElement {
     if (!this._config) return;
     if (!this._rendered) {
       this._loadSettings();
+      this._loadSettingsFromHA(); // overwrite with HA data if entity exists
       // Pre-sync humidifier target so first render shows correct value
       const humSt = h.states[this._humidifier];
       const target = humSt?.attributes?.humidity;
@@ -203,7 +205,6 @@ class BlowerControlCard extends HTMLElement {
     this._updateSensors();
     this._updateStatus();
     this._updateModeStatus();
-    this._updateGuardSpinners();
   }
 
   /* ── Sync dial with HA state ─────────────────────────────────────────── */
@@ -304,7 +305,7 @@ class BlowerControlCard extends HTMLElement {
         start: '08:00', runtime: 15, pause: 45, repetitions: 4, speed: 80, standby: 25,
         _state: { phase: 'waiting', count: 0, since: null }
       },
-      umwelt: { mode: 'both', useTemp: true, useHum: false, useVpd: false, maxTemp: 28, maxHum: 70, maxVpd: 1.2, speed: 100, standby: 25, hysteresis: 1.0 },
+      umwelt: { useTemp: true, useHum: false, useVpd: false, maxTemp: 28, maxHum: 70, maxVpd: 1.2, speed: 100, standby: 25, hysteresis: 1.0 },
       light: {
         mode: 'off',
         brightness: 100,
@@ -319,39 +320,67 @@ class BlowerControlCard extends HTMLElement {
           start: '08:00', runtime: 15, pause: 45, repetitions: 4, speed: 80, standby: 0,
           _state: { phase: 'waiting', count: 0, since: null }
         },
-        umwelt: { mode: 'both', useTemp: true, useHum: false, useVpd: false, maxTemp: 28, maxHum: 70, maxVpd: 1.2, speed: 100, standby: 0, hysteresis: 1.0 }
+        umwelt: { useTemp: true, useHum: false, useVpd: false, maxTemp: 28, maxHum: 70, maxVpd: 1.2, speed: 100, standby: 0, hysteresis: 1.0 }
       }
     };
   }
   _loadSettings() {
+    let saved = null;
     try {
       const r = localStorage.getItem(this._key);
-      this._settings = r ? this._merge(this._def(), JSON.parse(r)) : this._def();
-    } catch { this._settings = this._def(); }
-    // Migrate removed modes
-    const m = this._settings.umwelt?.mode;
-    if (m === 'temp_prio' || m === 'hum_prio') {
-      this._settings.umwelt.mode = 'both';
+      saved = r ? JSON.parse(r) : null;
+    } catch {}
+    this._settings = this._applyMigrations(saved);
+    this._snapCircSpeed();
+  }
+  _migrateUmwelt(u) {
+    if (!u || u.mode === undefined) return;
+    if (u.mode === 'temp_prio') u.mode = 'both';
+    if (u.mode === 'hum_prio')  u.mode = 'both';
+    u.useTemp = u.mode !== 'only_hum';
+    u.useHum  = (u.mode === 'both' || u.mode === 'only_hum');
+    delete u.mode;
+  }
+  _applyMigrations(saved) {
+    // Run migrations on raw saved data BEFORE merging with defaults, so
+    // defaults don't mask old field names.
+    if (saved) {
+      this._migrateUmwelt(saved.umwelt);
+      if (saved.circ) this._migrateUmwelt(saved.circ.umwelt);
     }
-    // Migrate old umwelt.mode → useTemp/useHum
-    const migrateUmwelt = (u) => {
-      if (u && u.mode !== undefined && u.useTemp === undefined) {
-        u.useTemp = u.mode !== 'only_hum';
-        u.useHum  = u.mode !== 'only_temp';
-        delete u.mode;
-      }
-    };
-    migrateUmwelt(this._settings.umwelt);
-    migrateUmwelt(this._settings.circ?.umwelt);
-    // Ensure circ speed is always snapped to 10
+    return saved ? this._merge(this._def(), saved) : this._def();
+  }
+  _snapCircSpeed() {
     if (this._settings.circ?.manual?.speed != null) {
       this._settings.circ.manual.speed = snap10(clamp(Math.round(this._settings.circ.manual.speed), 10, 100));
     }
   }
+  // Load settings from HA input_text entity (cross-device sync).
+  // Called once after hass is first available; HA data wins over localStorage.
+  _loadSettingsFromHA() {
+    if (!this._hass || !this._settingsEntity) return;
+    const st = this._hass.states[this._settingsEntity];
+    if (!st || !st.state || st.state === 'unknown' || st.state.length < 5) return;
+    let saved = null;
+    try { saved = JSON.parse(st.state); } catch { return; }
+    if (!saved || typeof saved !== 'object') return;
+    this._settings = this._applyMigrations(saved);
+    this._snapCircSpeed();
+    // Keep localStorage in sync so offline load is also up to date
+    try { localStorage.setItem(this._key, JSON.stringify(this._settings)); } catch {}
+  }
   _save() {
     clearTimeout(this._saveTimer);
     this._saveTimer = setTimeout(() => {
-      try { localStorage.setItem(this._key, JSON.stringify(this._settings)); } catch {}
+      const json = JSON.stringify(this._settings);
+      try { localStorage.setItem(this._key, json); } catch {}
+      // Sync to HA input_text so all devices stay in sync
+      if (this._hass && this._settingsEntity && this._hass.states[this._settingsEntity]) {
+        this._hass.callService('input_text', 'set_value', {
+          entity_id: this._settingsEntity,
+          value: json
+        });
+      }
     }, 150);
   }
   _merge(a, b) {
@@ -551,7 +580,6 @@ class BlowerControlCard extends HTMLElement {
       <circle class="thumb" id="thumb" cx="${th.x.toFixed(2)}" cy="${th.y.toFixed(2)}" r="13"/>
       <text class="pnum" id="pnum" x="${CX}" y="${CY + 2}">${m.speed}</text>
       <text class="punit" x="${CX}" y="${CY + 22}">%</text>
-      <circle class="dial-spinner" id="dial-spinner" cx="110" cy="110" r="18" fill="none" stroke="#03a9f4" stroke-width="3" stroke-dasharray="36 77" stroke-linecap="round"/>
     </svg>
     <div class="tick-label l">25</div>
     <div class="tick-label r">100</div>
@@ -1037,7 +1065,6 @@ class BlowerControlCard extends HTMLElement {
       <text class="hum-lbl-title" id="hum-title" x="${CX}" y="${CY - 20}">Befeuchtung</text>
       <text class="pnum" id="hum-pnum" x="${CX}" y="${CY + 10}">${this._humTarget}</text>
       <text class="punit" x="${CX}" y="${CY + 28}">%</text>
-      <circle class="dial-spinner" id="hum-dial-spinner" cx="110" cy="110" r="18" fill="none" stroke="#03a9f4" stroke-width="3" stroke-dasharray="36 77" stroke-linecap="round"/>
     </svg>
     <div class="tick-label l">${HM}</div>
     <div class="tick-label r">${HX}</div>
@@ -1220,7 +1247,6 @@ class BlowerControlCard extends HTMLElement {
       <circle class="thumb light-thumb" id="light-thumb" cx="${th.x.toFixed(2)}" cy="${th.y.toFixed(2)}" r="13"/>
       <text class="pnum" id="light-pnum" x="${CX}" y="${CY + 2}">${bri}</text>
       <text class="punit" x="${CX}" y="${CY + 22}">%</text>
-      <circle class="dial-spinner" id="light-dial-spinner" cx="110" cy="110" r="18" fill="none" stroke="#ffb300" stroke-width="3" stroke-dasharray="36 77" stroke-linecap="round"/>
     </svg>
     <div class="tick-label l">11</div>
     <div class="tick-label r">100</div>
@@ -1551,7 +1577,6 @@ class BlowerControlCard extends HTMLElement {
       <circle class="thumb circ-thumb" id="circ-thumb" cx="${th.x.toFixed(2)}" cy="${th.y.toFixed(2)}" r="13"/>
       <text class="pnum" id="circ-pnum" x="${CX}" y="${CY + 2}">${m.speed}</text>
       <text class="punit" x="${CX}" y="${CY + 22}">%</text>
-      <circle class="dial-spinner" id="circ-dial-spinner" cx="110" cy="110" r="18" fill="none" stroke="#4caf50" stroke-width="3" stroke-dasharray="36 77" stroke-linecap="round"/>
     </svg>
     <div class="tick-label l">0</div>
     <div class="tick-label r">100</div>
@@ -2395,17 +2420,6 @@ class BlowerControlCard extends HTMLElement {
     if (pct && !this._isDragging) pct.textContent = (on && st.attributes.percentage != null) ? ` ${Math.round(st.attributes.percentage)}%` : '';
   }
 
-  _updateGuardSpinners() {
-    const r = this.shadowRoot;
-    const now = Date.now();
-    const show = (id, active) => {
-      const el = r.querySelector(`#${id}`);
-      if (el) el.classList.toggle('vis', active);
-    };
-    show('dial-spinner',       now < this._cmdGuardUntil);
-    show('circ-dial-spinner',  now < this._circCmdGuard);
-    show('light-dial-spinner', now < this._lightCmdGuard);
-  }
 
   /* ── CSS (identical design) ──────────────────────────────────────────── */
   _css() { return `
@@ -2461,9 +2475,6 @@ ha-card{overflow:hidden;border-radius:16px}
 .tab:hover{color:var(--primary-text-color)}
 .tab.act{background:var(--card-background-color,#1c1c1e);color:var(--primary-text-color);font-weight:700;box-shadow:0 2px 10px rgba(0,0,0,.4)}
 .rdot{position:absolute;top:4px;right:4px;width:5px;height:5px;border-radius:50%;background:#4caf50;box-shadow:0 0 5px #4caf50}
-@keyframes bcc-spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
-.dial-spinner{transform-origin:110px 110px;animation:bcc-spin 0.8s linear infinite;display:none}
-.dial-spinner.vis{display:block}
 .chk-row{display:flex;align-items:center;gap:8px;padding:4px 0;font-size:.9em;cursor:pointer}
 .chk-row input{width:16px;height:16px;cursor:pointer}
 
