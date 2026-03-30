@@ -1,6 +1,6 @@
 // blower-control-card.js v15
 // type: custom:blower-control-card
-const BCC_VERSION = 'v58';
+const BCC_VERSION = 'v59';
 const BCC_DEBUG = false; // set true to enable verbose console logging
 console.log(`%c[BCC] ${BCC_VERSION} loaded`, 'color:#03a9f4;font-weight:bold');
 
@@ -355,18 +355,42 @@ class BlowerControlCard extends HTMLElement {
       this._settings.circ.manual.speed = snap10(clamp(Math.round(this._settings.circ.manual.speed), 10, 100));
     }
   }
-  // Load settings from HA input_text entity (cross-device sync).
+  // Compute diff of current vs defaults — only changed fields, skip _state
+  // and autoOffUntil (ephemeral timestamps). Result is always << 255 chars.
+  _diffObj(defs, cur) {
+    if (typeof cur !== 'object' || cur === null) return cur !== defs ? cur : undefined;
+    const out = {};
+    for (const k in cur) {
+      if (k === '_state' || k === 'autoOffUntil') continue;
+      const cv = cur[k], dv = (defs || {})[k];
+      if (cv === null || cv === undefined) continue;
+      if (typeof cv === 'object' && !Array.isArray(cv)) {
+        const sub = this._diffObj(dv, cv);
+        if (sub !== undefined && Object.keys(sub).length) out[k] = sub;
+      } else if (cv !== dv) {
+        out[k] = cv;
+      }
+    }
+    return Object.keys(out).length ? out : undefined;
+  }
+  // Load settings from HA input_text entities (cross-device sync).
   // Called once after hass is first available; HA data wins over localStorage.
   _loadSettingsFromHA() {
     if (!this._hass || !this._settingsEntity) return;
-    const st = this._hass.states[this._settingsEntity];
-    if (!st || !st.state || st.state === 'unknown' || st.state.length < 5) return;
-    let saved = null;
-    try { saved = JSON.parse(st.state); } catch { return; }
-    if (!saved || typeof saved !== 'object') return;
-    this._settings = this._applyMigrations(saved);
+    const eA = this._settingsEntity;
+    const eB = this._settingsEntity + '_circ';
+    const stA = this._hass.states[eA];
+    const stB = this._hass.states[eB];
+    if (!stA) return; // entity not set up — skip HA sync
+    let blower = null, circ = null;
+    try { if (stA.state?.length > 2) blower = JSON.parse(stA.state); } catch {}
+    try { if (stB?.state?.length > 2) circ = JSON.parse(stB.state); } catch {}
+    if (!blower && !circ) return;
+    // Reconstruct full saved object from the two diffs and merge with defaults
+    const raw = blower ? { ...blower } : {};
+    if (circ) raw.circ = circ;
+    this._settings = this._applyMigrations(raw);
     this._snapCircSpeed();
-    // Keep localStorage in sync so offline load is also up to date
     try { localStorage.setItem(this._key, JSON.stringify(this._settings)); } catch {}
   }
   _save() {
@@ -374,12 +398,20 @@ class BlowerControlCard extends HTMLElement {
     this._saveTimer = setTimeout(() => {
       const json = JSON.stringify(this._settings);
       try { localStorage.setItem(this._key, json); } catch {}
-      // Sync to HA input_text so all devices stay in sync
-      if (this._hass && this._settingsEntity && this._hass.states[this._settingsEntity]) {
-        this._hass.callService('input_text', 'set_value', {
-          entity_id: this._settingsEntity,
-          value: json
-        });
+      // Sync diffs to HA input_text (two entities, each < 255 chars)
+      if (this._hass && this._settingsEntity) {
+        const defs = this._def();
+        const full = this._diffObj(defs, this._settings) || {};
+        const circDiff = full.circ;
+        delete full.circ;
+        const eA = this._settingsEntity;
+        const eB = this._settingsEntity + '_circ';
+        const jA = JSON.stringify(full);
+        const jB = JSON.stringify(circDiff || {});
+        if (this._hass.states[eA] && jA.length <= 255)
+          this._hass.callService('input_text', 'set_value', { entity_id: eA, value: jA });
+        if (this._hass.states[eB] && jB.length <= 255)
+          this._hass.callService('input_text', 'set_value', { entity_id: eB, value: jB });
       }
     }, 150);
   }
