@@ -1,5 +1,5 @@
 // sensor-history-card.js
-const SHC_VERSION = 'v3';
+const SHC_VERSION = 'v4';
 console.log(`%c[SHC] ${SHC_VERSION} loaded`, 'color:#03a9f4;font-weight:bold');
 
 /* ── Pure utility functions ─────────────────────────────────────────────── */
@@ -151,10 +151,8 @@ class SensorHistoryCard extends HTMLElement {
     return `
       :host { display: flex; flex-direction: column; height: 100%; }
       ha-card {
-        background: rgba(255,255,255,0.06);
-        backdrop-filter: blur(20px);
-        -webkit-backdrop-filter: blur(20px);
-        border: 1px solid rgba(255,255,255,0.12);
+        background: var(--card-background-color);
+        border: 1px solid rgba(255,255,255,0.08);
         border-radius: 18px;
         padding: 0;
         overflow: hidden;
