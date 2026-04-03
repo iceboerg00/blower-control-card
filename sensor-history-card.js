@@ -1,5 +1,5 @@
 // sensor-history-card.js
-const SHC_VERSION = 'v6';
+const SHC_VERSION = 'v7';
 console.log(`%c[SHC] ${SHC_VERSION} loaded`, 'color:#03a9f4;font-weight:bold');
 
 /* ── Pure utility functions ─────────────────────────────────────────────── */
@@ -76,9 +76,10 @@ class SensorHistoryCard extends HTMLElement {
     this.attachShadow({ mode: 'open' });
     this._hass     = null;
     this._config   = null;
-    this._charts   = [];   // [tempChart, humChart, vpdChart]
-    this._range    = '24h';
-    this._rendered = false;
+    this._charts          = [];
+    this._range           = '24h';
+    this._rendered        = false;
+    this._resizeObserver  = null;
   }
 
   setConfig(config) {
@@ -106,6 +107,7 @@ class SensorHistoryCard extends HTMLElement {
   }
 
   disconnectedCallback() {
+    this._resizeObserver?.disconnect();
     this._charts.forEach(c => c?.destroy());
     this._charts = [];
   }
@@ -149,16 +151,17 @@ class SensorHistoryCard extends HTMLElement {
 
   _css() {
     return `
+      :host { display: flex; flex-direction: column; height: 100%; }
       ha-card {
         background: color-mix(in srgb, var(--card-background-color) 80%, transparent);
         border: 1px solid rgba(255,255,255,0.10);
         border-radius: 18px;
-        padding: 0;
-        overflow: hidden;
+        padding: 0; overflow: hidden;
         box-shadow: 0 4px 24px rgba(0,0,0,0.25);
+        display: flex; flex-direction: column; flex: 1; min-height: 0;
       }
       .header { display: flex; justify-content: space-between; align-items: center;
-                padding: 14px 16px 8px; }
+                padding: 14px 16px 8px; flex-shrink: 0; }
       .title  { font-size: 14px; font-weight: 600; color: var(--primary-text-color); }
       .range-btns { display: flex; gap: 4px; }
       .rbtn   { background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.1);
@@ -167,12 +170,13 @@ class SensorHistoryCard extends HTMLElement {
       .rbtn:hover { background: rgba(255,255,255,0.12); color: rgba(255,255,255,0.75); }
       .rbtn.active { background: rgba(3,169,244,0.18); border-color: rgba(3,169,244,0.5);
                      color: #03a9f4; }
-      .sensor-row { padding: 8px 16px 12px; border-top: 1px solid rgba(255,255,255,0.07); }
+      .sensor-row { padding: 8px 16px 10px; border-top: 1px solid rgba(255,255,255,0.07);
+                    flex: 1; display: flex; flex-direction: column; min-height: 0; }
       .row-header { display: flex; justify-content: space-between; align-items: baseline;
-                    margin-bottom: 6px; }
+                    margin-bottom: 4px; flex-shrink: 0; }
       .row-label  { font-size: 10px; font-weight: 700; letter-spacing: .08em; }
       .badge      { font-size: 13px; font-weight: 600; color: var(--primary-text-color); }
-      .chart-wrap { height: 80px; position: relative; }
+      .chart-wrap { flex: 1; min-height: 50px; position: relative; }
       canvas      { width: 100% !important; height: 100% !important; }
     `;
   }
@@ -353,6 +357,15 @@ class SensorHistoryCard extends HTMLElement {
     };
   }
 
+  _watchResize() {
+    this._resizeObserver?.disconnect();
+    this._resizeObserver = new ResizeObserver(() => {
+      this._charts.forEach(c => c?.resize());
+    });
+    const card = this.shadowRoot.querySelector('ha-card');
+    if (card) this._resizeObserver.observe(card);
+  }
+
   async _initAndFetch() {
     if (!this._hass) return;
     try {
@@ -362,6 +375,7 @@ class SensorHistoryCard extends HTMLElement {
       if (!data) return;
       this._initCharts(data);
       this._wireCrosshair();
+      this._watchResize();
     } catch (e) {
       console.error('[SHC] Init error:', e);
     }
