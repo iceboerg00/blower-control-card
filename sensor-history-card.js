@@ -46,6 +46,29 @@ function _loadChartJs() {
   return _chartsReady;
 }
 
+/* ── Crosshair plugin ────────────────────────────────────────────────────── */
+let _crosshairRegistered = false;
+
+function _registerCrosshairPlugin() {
+  if (_crosshairRegistered || !window.Chart) return;
+  _crosshairRegistered = true;
+  Chart.register({
+    id: 'shcCrosshair',
+    afterDraw(chart) {
+      if (chart._shcX == null) return;
+      const { ctx, chartArea: { top, bottom } } = chart;
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(chart._shcX, top);
+      ctx.lineTo(chart._shcX, bottom);
+      ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.restore();
+    },
+  });
+}
+
 /* ── Card class ─────────────────────────────────────────────────────────── */
 class SensorHistoryCard extends HTMLElement {
   constructor() {
@@ -242,6 +265,43 @@ class SensorHistoryCard extends HTMLElement {
     });
   }
 
+  _wireCrosshair() {
+    this._charts.forEach(sourceChart => {
+      sourceChart.canvas.addEventListener('mousemove', (e) => {
+        const rect = sourceChart.canvas.getBoundingClientRect();
+        const xPixel = e.clientX - rect.left;
+        const xRatio = (xPixel - sourceChart.chartArea.left) /
+                       (sourceChart.chartArea.right - sourceChart.chartArea.left);
+
+        this._charts.forEach(chart => {
+          const x = chart.chartArea.left + xRatio * (chart.chartArea.right - chart.chartArea.left);
+          chart._shcX = x;
+
+          // Sync tooltip to nearest data point
+          const meta = chart.getDatasetMeta(0);
+          if (meta.data.length) {
+            const nearest = meta.data.reduce((prev, curr) =>
+              Math.abs(curr.x - x) < Math.abs(prev.x - x) ? curr : prev
+            );
+            chart.tooltip.setActiveElements(
+              [{ datasetIndex: 0, index: nearest.$context.index }],
+              { x, y: nearest.y }
+            );
+          }
+          chart.update('none');
+        });
+      });
+
+      sourceChart.canvas.addEventListener('mouseleave', () => {
+        this._charts.forEach(chart => {
+          chart._shcX = null;
+          chart.tooltip.setActiveElements([], { x: 0, y: 0 });
+          chart.update('none');
+        });
+      });
+    });
+  }
+
   async _fetchHistory() {
     const start = new Date(Date.now() - _rangeToMs(this._range)).toISOString();
     const ids = [this._config.temp, this._config.humidity, this._config.vpd].join(',');
@@ -267,9 +327,11 @@ class SensorHistoryCard extends HTMLElement {
     if (!this._hass) return;
     try {
       await _loadChartJs();
+      _registerCrosshairPlugin();
       const data = await this._fetchHistory();
       if (!data) return;
       this._initCharts(data);
+      this._wireCrosshair();
     } catch (e) {
       console.error('[SHC] Init error:', e);
     }
