@@ -1,5 +1,5 @@
 // sensor-history-card.js
-const SHC_VERSION = 'v2';
+const SHC_VERSION = 'v3';
 console.log(`%c[SHC] ${SHC_VERSION} loaded`, 'color:#03a9f4;font-weight:bold');
 
 /* ── Pure utility functions ─────────────────────────────────────────────── */
@@ -149,6 +149,7 @@ class SensorHistoryCard extends HTMLElement {
 
   _css() {
     return `
+      :host { display: flex; flex-direction: column; height: 100%; }
       ha-card {
         background: rgba(255,255,255,0.06);
         backdrop-filter: blur(20px);
@@ -158,9 +159,10 @@ class SensorHistoryCard extends HTMLElement {
         padding: 0;
         overflow: hidden;
         box-shadow: 0 4px 24px rgba(0,0,0,0.18);
+        display: flex; flex-direction: column; flex: 1;
       }
       .header { display: flex; justify-content: space-between; align-items: center;
-                padding: 14px 16px 8px; }
+                padding: 14px 16px 8px; flex-shrink: 0; }
       .title  { font-size: 14px; font-weight: 600; color: var(--primary-text-color); }
       .range-btns { display: flex; gap: 4px; }
       .rbtn   { background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.1);
@@ -170,12 +172,13 @@ class SensorHistoryCard extends HTMLElement {
       .rbtn:hover { background: rgba(255,255,255,0.12); color: rgba(255,255,255,0.75); }
       .rbtn.active { background: rgba(3,169,244,0.18); border-color: rgba(3,169,244,0.5);
                      color: #03a9f4; }
-      .sensor-row { padding: 8px 16px 12px; border-top: 1px solid rgba(255,255,255,0.07); }
+      .sensor-row { padding: 8px 16px 10px; border-top: 1px solid rgba(255,255,255,0.07);
+                    flex: 1; display: flex; flex-direction: column; min-height: 0; }
       .row-header { display: flex; justify-content: space-between; align-items: baseline;
-                    margin-bottom: 6px; }
+                    margin-bottom: 4px; flex-shrink: 0; }
       .row-label  { font-size: 10px; font-weight: 700; letter-spacing: .08em; }
       .badge      { font-size: 13px; font-weight: 600; color: var(--primary-text-color); }
-      .chart-wrap { height: 80px; position: relative; }
+      .chart-wrap { flex: 1; min-height: 0; position: relative; }
       canvas      { width: 100% !important; height: 100% !important; }
     `;
   }
@@ -332,6 +335,19 @@ class SensorHistoryCard extends HTMLElement {
       temp:     _parseEntityHistory(raw[0] ?? []),
       humidity: _parseEntityHistory(raw[1] ?? []),
       vpd:      _parseEntityHistory(raw[2] ?? []),
+    };
+  }
+
+  getCardSize() { return 4; }
+
+  getLayoutOptions() {
+    return {
+      grid_rows: 4,
+      grid_columns: 4,
+      grid_min_rows: 3,
+      grid_max_rows: 12,
+      grid_min_columns: 2,
+      grid_max_columns: 4,
     };
   }
 
