@@ -175,6 +175,73 @@ class SensorHistoryCard extends HTMLElement {
     });
   }
 
+  _chartConfig(color, unit, data) {
+    return {
+      type: 'line',
+      data: {
+        datasets: [{
+          data,
+          borderColor: color,
+          borderWidth: 1.5,
+          pointRadius: 0,
+          tension: 0.3,
+          fill: true,
+          backgroundColor: (ctx) => {
+            const gradient = ctx.chart.ctx.createLinearGradient(0, 0, 0, ctx.chart.height);
+            gradient.addColorStop(0, color + '55');
+            gradient.addColorStop(1, color + '00');
+            return gradient;
+          },
+        }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: (ctx) => `${ctx.parsed.y.toFixed(2)} ${unit}`,
+            },
+          },
+        },
+        scales: {
+          x: {
+            type: 'time',
+            time: { tooltipFormat: 'HH:mm dd.MM' },
+            grid: { color: 'rgba(255,255,255,0.07)' },
+            ticks: { color: 'rgba(255,255,255,0.4)', maxTicksLimit: 6, font: { size: 10 } },
+          },
+          y: {
+            grid: { color: 'rgba(255,255,255,0.07)' },
+            ticks: { color: 'rgba(255,255,255,0.4)', font: { size: 10 } },
+          },
+        },
+      },
+    };
+  }
+
+  _initCharts(data) {
+    // Destroy existing instances before re-creating (happens on range change)
+    this._charts.forEach(c => c?.destroy());
+    this._charts = [];
+
+    const defs = [
+      { key: 'temp',     color: '#03a9f4', unit: '°C'  },
+      { key: 'humidity', color: '#4caf50', unit: '%'   },
+      { key: 'vpd',      color: '#ffb300', unit: 'kPa' },
+    ];
+
+    defs.forEach(({ key, color, unit }) => {
+      const canvas = this.shadowRoot.getElementById(`chart-${key}`);
+      if (!canvas) return;
+      const chart = new Chart(canvas, this._chartConfig(color, unit, data[key]));
+      this._charts.push(chart);
+    });
+  }
+
   async _fetchHistory() {
     const start = new Date(Date.now() - _rangeToMs(this._range)).toISOString();
     const ids = [this._config.temp, this._config.humidity, this._config.vpd].join(',');
@@ -202,11 +269,7 @@ class SensorHistoryCard extends HTMLElement {
       await _loadChartJs();
       const data = await this._fetchHistory();
       if (!data) return;
-      console.log('[SHC] History fetched:', {
-        temp: data.temp.length,
-        humidity: data.humidity.length,
-        vpd: data.vpd.length,
-      });
+      this._initCharts(data);
     } catch (e) {
       console.error('[SHC] Init error:', e);
     }
