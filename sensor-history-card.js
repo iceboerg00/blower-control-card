@@ -175,13 +175,40 @@ class SensorHistoryCard extends HTMLElement {
     });
   }
 
+  async _fetchHistory() {
+    const start = new Date(Date.now() - _rangeToMs(this._range)).toISOString();
+    const ids = [this._config.temp, this._config.humidity, this._config.vpd].join(',');
+    const path = `history/period/${start}?filter_entity_id=${ids}&minimal_response=true&no_attributes=true`;
+
+    let raw;
+    try {
+      raw = await this._hass.callApi('GET', path);
+    } catch (e) {
+      console.error('[SHC] History API error:', e);
+      return null;
+    }
+
+    // raw is array of arrays, one per entity, in same order as filter_entity_id
+    return {
+      temp:     _parseEntityHistory(raw[0] ?? []),
+      humidity: _parseEntityHistory(raw[1] ?? []),
+      vpd:      _parseEntityHistory(raw[2] ?? []),
+    };
+  }
+
   async _initAndFetch() {
     if (!this._hass) return;
     try {
       await _loadChartJs();
-      console.log('[SHC] Chart.js ready, version:', window.Chart?.version);
+      const data = await this._fetchHistory();
+      if (!data) return;
+      console.log('[SHC] History fetched:', {
+        temp: data.temp.length,
+        humidity: data.humidity.length,
+        vpd: data.vpd.length,
+      });
     } catch (e) {
-      console.error('[SHC] Chart.js load failed:', e);
+      console.error('[SHC] Init error:', e);
     }
   }
 }
