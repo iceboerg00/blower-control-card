@@ -23,10 +23,28 @@ function _parseEntityHistory(states) {
     .filter(p => !isNaN(p.x) && !isNaN(p.y));
 }
 
-/* ── Chart.js CDN loader placeholder ───────────────────────────────────── */
-// (will be filled in Task 3)
+/* ── Chart.js CDN loader ─────────────────────────────────────────────────── */
+// Module-level promise — prevents double-loading if multiple card instances exist
 let _chartsReady = null;
-async function _loadChartJs() { return Promise.resolve(); }
+
+function _loadChartJs() {
+  if (_chartsReady) return _chartsReady;
+  _chartsReady = new Promise((resolve, reject) => {
+    if (window.Chart) { resolve(); return; }
+    const s1 = document.createElement('script');
+    s1.src = 'https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js';
+    s1.onload = () => {
+      const s2 = document.createElement('script');
+      s2.src = 'https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3/dist/chartjs-adapter-date-fns.bundle.min.js';
+      s2.onload = resolve;
+      s2.onerror = () => reject(new Error('[SHC] Failed to load chartjs-adapter-date-fns'));
+      document.head.appendChild(s2);
+    };
+    s1.onerror = () => reject(new Error('[SHC] Failed to load Chart.js'));
+    document.head.appendChild(s1);
+  });
+  return _chartsReady;
+}
 
 /* ── Card class ─────────────────────────────────────────────────────────── */
 class SensorHistoryCard extends HTMLElement {
@@ -161,9 +179,9 @@ class SensorHistoryCard extends HTMLElement {
     if (!this._hass) return;
     try {
       await _loadChartJs();
-      console.log('[SHC] Chart.js ready (stub)');
+      console.log('[SHC] Chart.js ready, version:', window.Chart?.version);
     } catch (e) {
-      console.error('[SHC] Init error:', e);
+      console.error('[SHC] Chart.js load failed:', e);
     }
   }
 }
