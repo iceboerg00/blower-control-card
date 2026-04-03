@@ -18,7 +18,7 @@ function _parseEntityHistory(states) {
   return states
     .filter(s => s.state !== 'unavailable' && s.state !== 'unknown')
     .map(s => ({ x: new Date(s.last_changed).getTime(), y: parseFloat(s.state) }))
-    .filter(p => !isNaN(p.y));
+    .filter(p => !isNaN(p.x) && !isNaN(p.y));
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────────
@@ -51,5 +51,13 @@ assert.strictEqual(parsed.length, 2, 'should keep only numeric, available states
 assert.strictEqual(parsed[0].y, 22.4, 'first point y should be 22.4');
 assert.strictEqual(parsed[1].y, 23.1, 'second point y should be 23.1');
 assert.ok(typeof parsed[0].x === 'number', 'x must be a numeric timestamp');
+
+// _parseEntityHistory — invalid dates
+const rawBadDate = [
+  { state: '22.4', last_changed: 'not-a-date' },
+  { state: '23.1', last_changed: '2026-04-03T10:03:00+00:00' },
+];
+const parsedBadDate = _parseEntityHistory(rawBadDate);
+assert.strictEqual(parsedBadDate.length, 1, 'should filter out entries with invalid timestamps');
 
 console.log('✓ All sensor-history-card tests passed');

@@ -20,5 +20,5 @@ function _parseEntityHistory(states) {
   return states
     .filter(s => s.state !== 'unavailable' && s.state !== 'unknown')
     .map(s => ({ x: new Date(s.last_changed).getTime(), y: parseFloat(s.state) }))
-    .filter(p => !isNaN(p.y));
+    .filter(p => !isNaN(p.x) && !isNaN(p.y));
 }
