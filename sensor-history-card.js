@@ -1,5 +1,5 @@
 // sensor-history-card.js
-const SHC_VERSION = 'v5';
+const SHC_VERSION = 'v6';
 console.log(`%c[SHC] ${SHC_VERSION} loaded`, 'color:#03a9f4;font-weight:bold');
 
 /* ── Pure utility functions ─────────────────────────────────────────────── */
@@ -332,6 +332,14 @@ class SensorHistoryCard extends HTMLElement {
     };
   }
 
+  static getConfigElement() {
+    return document.createElement('sensor-history-card-editor');
+  }
+
+  static getStubConfig() {
+    return { temp: '', humidity: '', vpd: '', title: 'Grow Tent', default_range: '24h' };
+  }
+
   getCardSize() { return 4; }
 
   getLayoutOptions() {
@@ -361,3 +369,73 @@ class SensorHistoryCard extends HTMLElement {
 }
 
 customElements.define('sensor-history-card', SensorHistoryCard);
+
+/* ── Visual config editor ────────────────────────────────────────────────── */
+class SensorHistoryCardEditor extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: 'open' });
+    this._config = {};
+    this._hass   = null;
+  }
+
+  set hass(hass) {
+    this._hass = hass;
+    this.shadowRoot.querySelectorAll('ha-entity-picker').forEach(p => p.hass = hass);
+  }
+
+  setConfig(config) {
+    this._config = config;
+    this._render();
+  }
+
+  _render() {
+    this.shadowRoot.innerHTML = `
+      <style>
+        .form { display: flex; flex-direction: column; gap: 16px; padding: 4px 0 8px; }
+        ha-entity-picker, ha-textfield, ha-select { width: 100%; display: block; }
+      </style>
+      <div class="form">
+        <ha-entity-picker id="temp"     label="Temperatur Entity"      value="${this._config.temp     ?? ''}" allow-custom-entity></ha-entity-picker>
+        <ha-entity-picker id="humidity" label="Luftfeuchtigkeit Entity" value="${this._config.humidity ?? ''}" allow-custom-entity></ha-entity-picker>
+        <ha-entity-picker id="vpd"      label="VPD Entity"              value="${this._config.vpd      ?? ''}" allow-custom-entity></ha-entity-picker>
+        <ha-textfield id="title" label="Titel (optional)" value="${this._config.title ?? ''}"></ha-textfield>
+        <ha-select id="default_range" label="Standard Zeitbereich" value="${this._config.default_range ?? '24h'}">
+          <mwc-list-item value="1h">1h</mwc-list-item>
+          <mwc-list-item value="6h">6h</mwc-list-item>
+          <mwc-list-item value="24h">24h</mwc-list-item>
+          <mwc-list-item value="7d">7d</mwc-list-item>
+        </ha-select>
+      </div>
+    `;
+
+    if (this._hass) {
+      this.shadowRoot.querySelectorAll('ha-entity-picker').forEach(p => p.hass = this._hass);
+    }
+
+    this.shadowRoot.querySelectorAll('ha-entity-picker').forEach(p => {
+      p.addEventListener('value-changed', e => this._fire(p.id, e.detail.value));
+    });
+    this.shadowRoot.getElementById('title').addEventListener('change', e => {
+      this._fire('title', e.target.value);
+    });
+    this.shadowRoot.getElementById('default_range').addEventListener('value-changed', e => {
+      this._fire('default_range', e.detail.value);
+    });
+  }
+
+  _fire(key, value) {
+    const config = { ...this._config, [key]: value };
+    this.dispatchEvent(new CustomEvent('config-changed', { detail: { config }, bubbles: true, composed: true }));
+  }
+}
+customElements.define('sensor-history-card-editor', SensorHistoryCardEditor);
+
+/* ── HACS / card-picker registration ────────────────────────────────────── */
+window.customCards = window.customCards || [];
+window.customCards.push({
+  type: 'sensor-history-card',
+  name: 'Sensor History Card',
+  description: 'Temperatur, Luftfeuchtigkeit und VPD als synchronisierte Zeitreihen-Charts',
+  preview: false,
+});
