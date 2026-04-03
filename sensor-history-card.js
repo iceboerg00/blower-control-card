@@ -1,5 +1,5 @@
 // sensor-history-card.js
-const SHC_VERSION = 'v1';
+const SHC_VERSION = 'v2';
 console.log(`%c[SHC] ${SHC_VERSION} loaded`, 'color:#03a9f4;font-weight:bold');
 
 /* ── Pure utility functions ─────────────────────────────────────────────── */
@@ -149,16 +149,28 @@ class SensorHistoryCard extends HTMLElement {
 
   _css() {
     return `
-      ha-card { background: var(--card-background-color); padding: 0; overflow: hidden; }
+      ha-card {
+        background: rgba(255,255,255,0.06);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border: 1px solid rgba(255,255,255,0.12);
+        border-radius: 18px;
+        padding: 0;
+        overflow: hidden;
+        box-shadow: 0 4px 24px rgba(0,0,0,0.18);
+      }
       .header { display: flex; justify-content: space-between; align-items: center;
-                padding: 12px 16px 8px; }
+                padding: 14px 16px 8px; }
       .title  { font-size: 14px; font-weight: 600; color: var(--primary-text-color); }
       .range-btns { display: flex; gap: 4px; }
-      .rbtn   { background: transparent; border: 1px solid rgba(255,255,255,0.15);
-                color: rgba(255,255,255,0.5); border-radius: 4px; padding: 2px 8px;
-                font-size: 11px; cursor: pointer; transition: all .15s; }
-      .rbtn.active { border-color: #03a9f4; color: #03a9f4; }
-      .sensor-row { padding: 8px 16px 12px; border-top: 1px solid rgba(255,255,255,0.06); }
+      .rbtn   { background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.1);
+                color: rgba(255,255,255,0.45); border-radius: 8px; padding: 3px 9px;
+                font-size: 11px; cursor: pointer; transition: all .15s;
+                backdrop-filter: blur(8px); }
+      .rbtn:hover { background: rgba(255,255,255,0.12); color: rgba(255,255,255,0.75); }
+      .rbtn.active { background: rgba(3,169,244,0.18); border-color: rgba(3,169,244,0.5);
+                     color: #03a9f4; }
+      .sensor-row { padding: 8px 16px 12px; border-top: 1px solid rgba(255,255,255,0.07); }
       .row-header { display: flex; justify-content: space-between; align-items: baseline;
                     margin-bottom: 6px; }
       .row-label  { font-size: 10px; font-weight: 700; letter-spacing: .08em; }
